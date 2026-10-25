@@ -12,13 +12,25 @@ import {
   Award
 } from 'lucide-react';
 
+function formatFullPnL(val) {
+  const abs = Math.abs(val);
+  const sign = val >= 0 ? '+' : '-';
+  return `${sign}$${abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatMobilePnL(val) {
+  const abs = Math.abs(val);
+  const sign = val >= 0 ? '+' : '-';
+  return `${sign}$${Math.round(abs).toLocaleString('en-US')}`;
+}
+
 function formatWeekPnL(val) {
   const abs = Math.abs(val);
   const sign = val >= 0 ? '+' : '-';
   if (abs >= 10000) {
     return `${sign}$${(abs / 1000).toFixed(1)}k`;
   }
-  return `${sign}$${abs.toFixed(0)}`;
+  return `${sign}$${Math.round(abs).toLocaleString('en-US')}`;
 }
 
 export default function TradingCalendar({ trades, onSelectTrade }) {
@@ -341,7 +353,8 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
                 </div>
               ))}
               <div className="calendar-week-header">
-                Wk PnL
+                <span className="hide-on-mobile">Week PnL</span>
+                <span className="show-on-mobile">Wk PnL</span>
               </div>
             </div>
 
@@ -434,15 +447,20 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
 
                         {hasTrades && (
                           <span style={{
-                            fontSize: '0.6rem',
+                            fontSize: '0.65rem',
                             fontWeight: 700,
-                            padding: '1px 3px',
+                            padding: '1px 5px',
                             borderRadius: '4px',
                             background: isProfitable ? 'rgba(16, 185, 129, 0.2)' : 'rgba(244, 63, 94, 0.2)',
                             color: isProfitable ? '#34D399' : '#FB7185',
                             whiteSpace: 'nowrap'
                           }}>
-                            {dayData.trades.length}t
+                            <span className="hide-on-mobile">
+                              {dayData.trades.length} {dayData.trades.length === 1 ? 'trade' : 'trades'}
+                            </span>
+                            <span className="show-on-mobile">
+                              {dayData.trades.length}t
+                            </span>
                           </span>
                         )}
                       </div>
@@ -454,13 +472,18 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
                             className="font-mono calendar-day-pnl"
                             style={{ color: isProfitable ? '#34D399' : '#FB7185' }}
                           >
-                            {isProfitable ? `+$${dayData.totalPnL.toFixed(0)}` : `-$${Math.abs(dayData.totalPnL).toFixed(0)}`}
+                            <span className="hide-on-mobile">
+                              {formatFullPnL(dayData.totalPnL)}
+                            </span>
+                            <span className="show-on-mobile">
+                              {formatMobilePnL(dayData.totalPnL)}
+                            </span>
                           </div>
                           <div style={{
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '2px',
-                            fontSize: '0.6rem',
+                            gap: '4px',
+                            fontSize: '0.65rem',
                             color: 'var(--text-muted)',
                             marginTop: '2px'
                           }}>
@@ -487,13 +510,19 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
                   }}
                 >
                   <span className="calendar-week-label">
-                    W{wIdx + 1}
+                    <span className="hide-on-mobile">Week {wIdx + 1}</span>
+                    <span className="show-on-mobile">W{wIdx + 1}</span>
                   </span>
                   {weekHasTrades ? (
                     <span className="font-mono calendar-week-pnl" style={{
                       color: weeklyPnL >= 0 ? '#34D399' : '#FB7185'
                     }}>
-                      {formatWeekPnL(weeklyPnL)}
+                      <span className="hide-on-mobile">
+                        {formatFullPnL(weeklyPnL)}
+                      </span>
+                      <span className="show-on-mobile">
+                        {formatWeekPnL(weeklyPnL)}
+                      </span>
                     </span>
                   ) : (
                     <span className="calendar-week-empty">-</span>
