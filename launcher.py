@@ -16,11 +16,94 @@ import webbrowser
 from queue import Queue, Empty
 import customtkinter as ctk
 
-# Base project directory
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ---------------------------------------------------------------------------
+# Path & Environment Resolution (Supports both script & PyInstaller .exe)
+# ---------------------------------------------------------------------------
+def get_base_dir():
+    """
+    Locates the true project root directory whether running:
+    1. Directly via 'python launcher.py' or 'start.bat'
+    2. Via PyInstaller frozen executable (e.g. dist/MAI-Trading/MAI-Trading.exe)
+    3. Via a Desktop shortcut
+    """
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        candidates = [
+            os.getcwd(),
+            exe_dir,
+            os.path.abspath(os.path.join(exe_dir, "..")),
+            os.path.abspath(os.path.join(exe_dir, "..", "..")),
+        ]
+        try:
+            f_dir = os.path.dirname(os.path.abspath(__file__))
+            candidates.extend([f_dir, os.path.abspath(os.path.join(f_dir, "..", ".."))])
+        except Exception:
+            pass
+
+        for path in candidates:
+            if os.path.isdir(os.path.join(path, "backend")) and os.path.isdir(os.path.join(path, "frontend")):
+                return os.path.abspath(path)
+
+        # Fallback for dist/MAI-Trading/MAI-Trading.exe
+        return os.path.abspath(os.path.join(exe_dir, "..", ".."))
+
+    return os.path.dirname(os.path.abspath(__file__))
+
+BASE_DIR = get_base_dir()
 BACKEND_DIR = os.path.join(BASE_DIR, "backend")
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 MT5_DIR = os.path.join(BASE_DIR, "mt5-connector")
+
+def get_python_exe():
+    """
+    Finds a valid Python interpreter to run backend/MT5 child processes.
+    In frozen exe mode, sys.executable is MAI-Trading.exe, NOT python.
+    """
+    if not getattr(sys, "frozen", False):
+        return sys.executable
+
+    # 1. System PATH
+    py = shutil.which("python") or shutil.which("python3")
+    if py and not py.lower().endswith("mai-trading.exe"):
+        return py
+
+    # 2. Project virtual environment (.venv)
+    venv_py = os.path.join(BASE_DIR, ".venv", "Scripts", "python.exe")
+    if os.path.isfile(venv_py):
+        return venv_py
+
+    # 3. Standard Windows install locations
+    local_app_data = os.environ.get("LOCALAPPDATA", "")
+    for candidate in [
+        os.path.join(local_app_data, "Programs", "Python", "Python313", "python.exe"),
+        os.path.join(local_app_data, "Programs", "Python", "Python312", "python.exe"),
+        os.path.join(local_app_data, "Programs", "Python", "Python311", "python.exe"),
+        r"C:\Python313\python.exe",
+        r"C:\Python312\python.exe",
+        r"C:\Python311\python.exe",
+    ]:
+        if os.path.isfile(candidate):
+            return candidate
+
+    return "python"
+
+PYTHON_EXE = get_python_exe()
+
+def get_npm_bin():
+    """Finds the npm binary on Windows."""
+    npm_bin = shutil.which("npm.cmd") or shutil.which("npm")
+    if npm_bin:
+        return npm_bin
+    for candidate in [
+        r"C:\Program Files\nodejs\npm.cmd",
+        r"C:\Program Files (x86)\nodejs\npm.cmd",
+        os.path.expandvars(r"%APPDATA%\npm\npm.cmd"),
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\node\npm.cmd"),
+    ]:
+        if os.path.isfile(candidate):
+            return candidate
+    return "npm.cmd"
+
 
 # ---------------------------------------------------------------------------
 # Configuration Helpers (reads ports/URLs from .env files)
@@ -55,17 +138,36 @@ def is_port_open(port, host="127.0.0.1"):
     except Exception:
         return False
 
+def get_subprocess_creation_flags():
+    """
+    Returns subprocess kwargs to suppress console/terminal windows from popping up on Windows.
+    Uses CREATE_NO_WINDOW and hides window appearance.
+    """
+    kwargs = {}
+    if sys.platform == "win32":
+        # 0x08000000 = CREATE_NO_WINDOW: prevent new console window creation
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0x00000001)
+        startupinfo.wShowWindow = 0  # SW_HIDE
+        kwargs["startupinfo"] = startupinfo
+    return kwargs
+
 def kill_proc_tree(proc):
     """Terminates a process and all its children cleanly on Windows."""
     if not proc or proc.poll() is not None:
         return
     try:
-        # Use Windows taskkill to force-kill the whole child process tree
+        # Use Windows taskkill to force-kill the whole child process tree without popping up a window
+        kwargs = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         subprocess.run(
             ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            check=False
+            check=False,
+            **kwargs
         )
     except Exception:
         try:
@@ -110,6 +212,10 @@ class App(ctk.CTk):
         # Start background polling timer
         self.after(100, self._process_log_queue)
         self.after(1000, self._update_statuses)
+
+        # Log active paths
+        self.log("system", f"MAI TRADING Root: {BASE_DIR}")
+        self.log("system", f"Python Interpreter: {PYTHON_EXE}")
 
     # -----------------------------------------------------------------------
     # UI Components
@@ -461,9 +567,13 @@ class App(ctk.CTk):
     def start_backend(self):
         if self.is_running("backend"):
             return
+        if not os.path.isdir(BACKEND_DIR):
+            self.log("backend", f"[ERROR] Backend directory not found: {BACKEND_DIR}")
+            return
         self.log("backend", "Starting Backend server on port " + str(BACKEND_PORT) + "...")
-        cmd = [sys.executable, "main.py"]
+        cmd = [PYTHON_EXE, "main.py"]
         try:
+            subproc_kwargs = get_subprocess_creation_flags()
             proc = subprocess.Popen(
                 cmd,
                 cwd=BACKEND_DIR,
@@ -472,7 +582,8 @@ class App(ctk.CTk):
                 text=True,
                 bufsize=1,
                 encoding="utf-8",
-                errors="replace"
+                errors="replace",
+                **subproc_kwargs
             )
             self.procs["backend"] = proc
             threading.Thread(target=self._stream_output, args=(proc, "backend"), daemon=True).start()
@@ -494,9 +605,13 @@ class App(ctk.CTk):
     def start_mt5(self):
         if self.is_running("mt5"):
             return
+        if not os.path.isdir(MT5_DIR):
+            self.log("mt5", f"[ERROR] MT5 directory not found: {MT5_DIR}")
+            return
         self.log("mt5", "Starting MT5 Sync worker...")
-        cmd = [sys.executable, "sync.py"]
+        cmd = [PYTHON_EXE, "sync.py"]
         try:
+            subproc_kwargs = get_subprocess_creation_flags()
             proc = subprocess.Popen(
                 cmd,
                 cwd=MT5_DIR,
@@ -505,7 +620,8 @@ class App(ctk.CTk):
                 text=True,
                 bufsize=1,
                 encoding="utf-8",
-                errors="replace"
+                errors="replace",
+                **subproc_kwargs
             )
             self.procs["mt5"] = proc
             threading.Thread(target=self._stream_output, args=(proc, "mt5"), daemon=True).start()
@@ -527,10 +643,14 @@ class App(ctk.CTk):
     def start_frontend(self):
         if self.is_running("frontend"):
             return
+        if not os.path.isdir(FRONTEND_DIR):
+            self.log("frontend", f"[ERROR] Frontend directory not found: {FRONTEND_DIR}")
+            return
         self.log("frontend", f"Starting Vite dev server on port {FRONTEND_PORT}...")
-        npm_bin = shutil.which("npm.cmd") or shutil.which("npm") or "npm.cmd"
+        npm_bin = get_npm_bin()
         cmd = [npm_bin, "run", "dev"]
         try:
+            subproc_kwargs = get_subprocess_creation_flags()
             proc = subprocess.Popen(
                 cmd,
                 cwd=FRONTEND_DIR,
@@ -539,7 +659,8 @@ class App(ctk.CTk):
                 text=True,
                 bufsize=1,
                 encoding="utf-8",
-                errors="replace"
+                errors="replace",
+                **subproc_kwargs
             )
             self.procs["frontend"] = proc
             threading.Thread(target=self._stream_output, args=(proc, "frontend"), daemon=True).start()
