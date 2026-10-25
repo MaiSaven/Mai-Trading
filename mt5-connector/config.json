@@ -1,0 +1,11 @@
+{
+  "account_login": null,
+  "account_password": "",
+  "server": "",
+  "terminal_path": "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
+  "backend_sync_url": "http://localhost:8000/api/v1/sync",
+  "api_key": "mai-trading-secret-key",
+  "sync_interval_seconds": 10,
+  "history_days": 60,
+  "auto_simulation_fallback": false
+}

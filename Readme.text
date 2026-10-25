@@ -1,0 +1,73 @@
+# MAI TRADING - Automated MT5 Trading Journal & Analytics Platform (v2.0)
+
+A high-performance trading journal, analytics dashboard, and MetaTrader 5 connector designed for modern forex, commodity, and crypto traders.
+
+---
+
+## Architecture Overview
+
+1. **`backend/`**: FastAPI REST API + SQLAlchemy ORM + PostgreSQL (`mai-trading`, schema `trading`).
+   - Weighted average deal-matching engine (`trade_matching.py`) that joins MT5 `IN` and `OUT` executions into consolidated trades.
+   - Real-time endpoints for analytics, win rate, profit factor, expectancy, PnL equity curve, open positions, and journal reflections.
+   - Built-in demo seeding endpoint (`POST /api/v1/sync/seed-demo`).
+
+2. **`mt5-connector/`**: Python bridge using official `MetaTrader5` and `requests`.
+   - Polls account statistics, open positions, and deal history.
+   - Configurable settings via `config.json`.
+   - Automatic fallback to high-fidelity live simulation worker if MT5 terminal is unauthorized or offline.
+
+3. **`frontend/`**: Modern React + Vite application styled with custom dark-mode design system.
+   - Live interactive Recharts Equity Curve.
+   - Instrument breakdown (XAUUSD, EURUSD, GBPUSD, USDJPY, etc.).
+   - Live streaming Open Positions monitor with floating PnL.
+   - Searchable Execution Log with Win/Loss filtering.
+   - Trade Reflection drawer: strategy setups, emotional state tags, 1–5 star execution ratings, and chart screenshots.
+
+---
+
+## Quickstart Guide
+
+### 1. Start Backend API Server
+```bash
+cd backend
+pip install fastapi uvicorn sqlalchemy pydantic requests
+uvicorn main:app --reload --port 8000
+```
+- API Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+- Health Check: [http://localhost:8000/](http://localhost:8000/)
+
+---
+
+### 2. Launch Modern React Dashboard
+```bash
+cd frontend
+npm install
+npm run dev
+```
+- Open in browser: [http://localhost:5173](http://localhost:5173)
+
+---
+
+### 3. Start MT5 Sync Worker
+
+#### Option A: Live Connection to MetaTrader 5
+1. Open your **MetaTrader 5 desktop terminal**.
+2. Log into your demo or live broker account (`File` -> `Login to Trade Account`). Ensure bottom-right connection status shows active bars.
+3. In `mt5-connector/`, run:
+```bash
+cd mt5-connector
+pip install MetaTrader5 requests
+python sync.py
+```
+*(Optional: configure credentials or terminal path in `mt5-connector/config.json`)*.
+
+#### Option B: Simulation / Demo Testing Mode
+If MT5 is offline, or you want to test the entire system immediately without broker credentials:
+```bash
+cd mt5-connector
+python sync.py --mock
+```
+To seed sample historical trades directly into SQLite:
+```bash
+python sync.py --seed
+```
