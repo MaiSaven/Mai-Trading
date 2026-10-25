@@ -33,24 +33,24 @@ export default function Header({
   const activeAccount = accounts.find(a => a.account_id === activeAccountId) || accounts[0];
 
   return (
-    <header className="glass-panel" style={{ padding: '16px 24px', marginBottom: '24px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+    <header className="glass-panel header-container">
+      <div className="header-top-row">
         
         {/* Brand & Connection Badge */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div className="header-left-cluster">
           <div style={{
             background: 'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)',
-            padding: '10px 14px',
+            padding: '8px 12px',
             borderRadius: '12px',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
             boxShadow: '0 4px 14px rgba(79, 70, 229, 0.35)'
           }}>
-            <Zap size={22} color="#ffffff" />
+            <Zap size={20} color="#ffffff" />
             <div>
-              <div style={{ fontWeight: 800, fontSize: '1.05rem', letterSpacing: '0.05em', lineHeight: 1 }}>MAI TRADING</div>
-              <div style={{ fontSize: '0.65rem', color: '#E0E7FF', letterSpacing: '0.1em', marginTop: '2px' }}>ANALYTICS & JOURNAL</div>
+              <div style={{ fontWeight: 800, fontSize: '0.98rem', letterSpacing: '0.05em', lineHeight: 1 }}>MAI TRADING</div>
+              <div style={{ fontSize: '0.62rem', color: '#E0E7FF', letterSpacing: '0.1em', marginTop: '2px' }}>ANALYTICS & JOURNAL</div>
             </div>
           </div>
 
@@ -59,24 +59,26 @@ export default function Header({
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            padding: '6px 14px',
+            padding: '6px 12px',
             background: 'rgba(255, 255, 255, 0.04)',
             border: '1px solid var(--border-color)',
             borderRadius: '9999px',
-            fontSize: '0.8rem'
+            fontSize: '0.78rem',
+            maxWidth: '100%'
           }}>
             <span style={{
               width: '8px',
               height: '8px',
               borderRadius: '50%',
-              backgroundColor: isConnected ? '#10B981' : '#F59E0B'
+              backgroundColor: isConnected ? '#10B981' : '#F59E0B',
+              flexShrink: 0
             }} className="pulsing-indicator" />
-            <span style={{ color: 'var(--text-muted)' }}>MT5 Sync:</span>
-            <span style={{ fontWeight: 600, color: isConnected ? '#34D399' : '#FBBF24' }}>
+            <span style={{ color: 'var(--text-muted)' }}>MT5:</span>
+            <span style={{ fontWeight: 600, color: isConnected ? '#34D399' : '#FBBF24', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {isConnected ? (brokerName.includes('Simulated') ? 'Simulated Live Worker' : brokerName) : 'Awaiting Connection'}
             </span>
             {accountId && (
-              <span className="font-mono" style={{ color: 'var(--text-dim)', fontSize: '0.75rem' }}>
+              <span className="font-mono" style={{ color: 'var(--text-dim)', fontSize: '0.72rem', flexShrink: 0 }}>
                 #{accountId}
               </span>
             )}
@@ -91,11 +93,11 @@ export default function Header({
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
-                  padding: '6px 14px',
+                  padding: '6px 12px',
                   background: 'rgba(99, 102, 241, 0.12)',
                   border: '1px solid rgba(99, 102, 241, 0.35)',
                   borderRadius: '9999px',
-                  fontSize: '0.8rem',
+                  fontSize: '0.78rem',
                   cursor: 'pointer',
                   color: '#A5B4FC',
                   fontWeight: 600,
@@ -122,7 +124,8 @@ export default function Header({
                   borderRadius: '12px',
                   padding: '8px',
                   zIndex: 1000,
-                  minWidth: '260px',
+                  minWidth: '240px',
+                  maxWidth: 'calc(100vw - 32px)',
                   boxShadow: '0 20px 50px rgba(0,0,0,0.5)'
                 }}>
                   <div style={{ padding: '4px 8px 8px', fontSize: '0.7rem', color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
@@ -166,8 +169,7 @@ export default function Header({
         </div>
 
         {/* Quick Action Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-
+        <div className="header-actions">
           <button 
             onClick={onOpenManualModal} 
             className="btn-secondary"
@@ -190,31 +192,14 @@ export default function Header({
       </div>
 
       {/* Navigation Tabs */}
-      <div style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        gap: '6px', 
-        marginTop: '18px', 
-        paddingTop: '14px', 
-        borderTop: '1px solid var(--border-color)',
-        overflowX: 'auto'
-      }}>
+      <nav className="nav-tabs-bar">
         <button
           onClick={() => setActiveTab('overview')}
+          className="nav-tab-btn"
           style={{
             background: activeTab === 'overview' ? 'rgba(99, 102, 241, 0.18)' : 'transparent',
             color: activeTab === 'overview' ? '#818CF8' : 'var(--text-muted)',
-            border: activeTab === 'overview' ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid transparent',
-            padding: '7px 16px',
-            borderRadius: '8px',
-            fontWeight: 600,
-            fontSize: '0.85rem',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            transition: 'all 0.15s ease',
-            whiteSpace: 'nowrap'
+            border: activeTab === 'overview' ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid transparent'
           }}
         >
           <BarChart3 size={16} />
@@ -223,20 +208,11 @@ export default function Header({
 
         <button
           onClick={() => setActiveTab('calendar')}
+          className="nav-tab-btn"
           style={{
             background: activeTab === 'calendar' ? 'rgba(99, 102, 241, 0.18)' : 'transparent',
             color: activeTab === 'calendar' ? '#818CF8' : 'var(--text-muted)',
-            border: activeTab === 'calendar' ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid transparent',
-            padding: '7px 16px',
-            borderRadius: '8px',
-            fontWeight: 600,
-            fontSize: '0.85rem',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            transition: 'all 0.15s ease',
-            whiteSpace: 'nowrap'
+            border: activeTab === 'calendar' ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid transparent'
           }}
         >
           <CalendarIcon size={16} />
@@ -245,20 +221,11 @@ export default function Header({
 
         <button
           onClick={() => setActiveTab('executions')}
+          className="nav-tab-btn"
           style={{
             background: activeTab === 'executions' ? 'rgba(99, 102, 241, 0.18)' : 'transparent',
             color: activeTab === 'executions' ? '#818CF8' : 'var(--text-muted)',
-            border: activeTab === 'executions' ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid transparent',
-            padding: '7px 16px',
-            borderRadius: '8px',
-            fontWeight: 600,
-            fontSize: '0.85rem',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            transition: 'all 0.15s ease',
-            whiteSpace: 'nowrap'
+            border: activeTab === 'executions' ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid transparent'
           }}
         >
           <ListOrdered size={16} />
@@ -277,26 +244,17 @@ export default function Header({
 
         <button
           onClick={() => setActiveTab('journal')}
+          className="nav-tab-btn"
           style={{
             background: activeTab === 'journal' ? 'rgba(99, 102, 241, 0.18)' : 'transparent',
             color: activeTab === 'journal' ? '#818CF8' : 'var(--text-muted)',
-            border: activeTab === 'journal' ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid transparent',
-            padding: '7px 16px',
-            borderRadius: '8px',
-            fontWeight: 600,
-            fontSize: '0.85rem',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            transition: 'all 0.15s ease',
-            whiteSpace: 'nowrap'
+            border: activeTab === 'journal' ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid transparent'
           }}
         >
           <BookOpen size={16} />
           <span>Journal & Psychology</span>
         </button>
-      </div>
+      </nav>
     </header>
   );
 }

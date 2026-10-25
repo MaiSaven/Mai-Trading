@@ -61,7 +61,7 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
         </div>
 
         {/* Filter Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', width: '100%', maxWidth: '600px' }}>
           {/* Search box */}
           <div style={{
             display: 'flex',
@@ -70,7 +70,9 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
             background: 'rgba(0, 0, 0, 0.3)',
             border: '1px solid var(--border-color)',
             borderRadius: '8px',
-            padding: '6px 12px'
+            padding: '6px 12px',
+            flex: '1 1 180px',
+            minWidth: '140px'
           }}>
             <Search size={14} color="var(--text-dim)" />
             <input
@@ -84,7 +86,7 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
                 outline: 'none',
                 color: 'white',
                 fontSize: '0.8rem',
-                width: '180px'
+                width: '100%'
               }}
             />
           </div>
@@ -106,7 +108,7 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
                   color: outcomeFilter === mode ? 'white' : 'var(--text-dim)',
                   border: 'none',
                   borderRadius: '6px',
-                  padding: '4px 10px',
+                  padding: '5px 10px',
                   fontSize: '0.75rem',
                   fontWeight: 600,
                   cursor: 'pointer',
@@ -143,8 +145,12 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
 
       {/* Trades Table */}
       {filteredTrades.length > 0 ? (
-        <div style={{ overflowX: 'auto' }}>
-          <table className="custom-table">
+        <>
+          <div className="mobile-scroll-hint">
+            <span>↔ Scroll horizontally to view full trade execution history</span>
+          </div>
+          <div className="table-scroll-container">
+            <table className="custom-table">
             <thead>
               <tr>
                 <th>Date / Time</th>
@@ -281,6 +287,7 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
             </tbody>
           </table>
         </div>
+      </>
       ) : (
         <div style={{
           textAlign: 'center',

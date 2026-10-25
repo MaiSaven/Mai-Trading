@@ -12,6 +12,15 @@ import {
   Award
 } from 'lucide-react';
 
+function formatWeekPnL(val) {
+  const abs = Math.abs(val);
+  const sign = val >= 0 ? '+' : '-';
+  if (abs >= 10000) {
+    return `${sign}$${(abs / 1000).toFixed(1)}k`;
+  }
+  return `${sign}$${abs.toFixed(0)}`;
+}
+
 export default function TradingCalendar({ trades, onSelectTrade }) {
   // Determine initial month based on latest trade or current date
   const initialDate = useMemo(() => {
@@ -264,15 +273,7 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
         </div>
 
         {/* Monthly Summary Cards Strip */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: '12px',
-          padding: '16px',
-          background: 'rgba(255, 255, 255, 0.02)',
-          border: '1px solid var(--border-color)',
-          borderRadius: '12px'
-        }}>
+        <div className="calendar-summary-strip">
           <div>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', display: 'block', marginBottom: '4px' }}>
               Month Net PnL
@@ -326,38 +327,23 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
       </div>
 
       {/* Calendar Grid Container */}
-      <div className="glass-panel" style={{ padding: '20px' }}>
-        {/* Day-of-Week Headers */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(7, 1fr) 110px',
-          gap: '8px',
-          marginBottom: '8px',
-          textAlign: 'center'
-        }}>
-          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
-            <div key={day} style={{
-              color: 'var(--text-dim)',
-              fontSize: '0.75rem',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              padding: '6px 0'
-            }}>
-              {day}
-            </div>
-          ))}
-          <div style={{
-            color: '#818CF8',
-            fontSize: '0.75rem',
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: '0.06em',
-            padding: '6px 0'
-          }}>
-            Week PnL
-          </div>
+      <div className="glass-panel calendar-main-card">
+        <div className="mobile-scroll-hint">
+          <span>↔ Swipe horizontally to view full calendar days & weekly PnL</span>
         </div>
+        <div className="calendar-scroll-wrapper">
+          <div className="calendar-inner-grid">
+            {/* Day-of-Week Headers */}
+            <div className="calendar-grid-row" style={{ marginBottom: '8px', textAlign: 'center' }}>
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
+                <div key={day} className="calendar-day-header">
+                  {day}
+                </div>
+              ))}
+              <div className="calendar-week-header">
+                Wk PnL
+              </div>
+            </div>
 
         {/* Calendar Rows */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -377,11 +363,7 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
             return (
               <div
                 key={wIdx}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(7, 1fr) 110px',
-                  gap: '8px'
-                }}
+                className="calendar-grid-row"
               >
                 {/* 7 Days of the Week */}
                 {week.map((day, dIdx) => {
@@ -389,11 +371,10 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
                     return (
                       <div
                         key={`empty-${dIdx}`}
+                        className="calendar-day-cell"
                         style={{
                           background: 'rgba(255, 255, 255, 0.01)',
                           border: '1px solid rgba(255, 255, 255, 0.02)',
-                          borderRadius: '10px',
-                          minHeight: '105px',
                           opacity: 0.3
                         }}
                       />
@@ -409,6 +390,7 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
                   return (
                     <div
                       key={dateKey}
+                      className="calendar-day-cell"
                       onClick={() => {
                         if (hasTrades) {
                           setSelectedDateKey(isSelected ? null : dateKey);
@@ -425,14 +407,7 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
                           : hasTrades
                             ? isProfitable ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(244, 63, 94, 0.35)'
                             : '1px solid var(--border-color)',
-                        borderRadius: '10px',
-                        padding: '10px',
-                        minHeight: '105px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
                         cursor: hasTrades ? 'pointer' : 'default',
-                        transition: 'all 0.15s ease',
                         boxShadow: isSelected ? '0 0 16px rgba(99, 102, 241, 0.4)' : 'none'
                       }}
                       onMouseEnter={(e) => {
@@ -449,57 +424,53 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
                       }}
                     >
                       {/* Top Header in Cell: Day Number */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{
-                          fontWeight: 700,
-                          fontSize: '0.85rem',
-                          color: hasTrades ? 'var(--text-main)' : 'var(--text-dim)'
-                        }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '2px' }}>
+                        <span
+                          className="calendar-day-cell-number"
+                          style={{ color: hasTrades ? 'var(--text-main)' : 'var(--text-dim)' }}
+                        >
                           {dayNum}
                         </span>
 
                         {hasTrades && (
                           <span style={{
-                            fontSize: '0.65rem',
+                            fontSize: '0.6rem',
                             fontWeight: 700,
-                            padding: '1px 5px',
+                            padding: '1px 3px',
                             borderRadius: '4px',
                             background: isProfitable ? 'rgba(16, 185, 129, 0.2)' : 'rgba(244, 63, 94, 0.2)',
-                            color: isProfitable ? '#34D399' : '#FB7185'
+                            color: isProfitable ? '#34D399' : '#FB7185',
+                            whiteSpace: 'nowrap'
                           }}>
-                            {dayData.trades.length} {dayData.trades.length === 1 ? 'trade' : 'trades'}
+                            {dayData.trades.length}t
                           </span>
                         )}
                       </div>
 
-                      {/* Middle & Bottom in Cell: Daily PnL and Win/Loss */}
+                      {/* Bottom in Cell: Daily PnL */}
                       {hasTrades ? (
-                        <div style={{ marginTop: 'auto', paddingTop: '6px' }}>
-                          <div className="font-mono" style={{
-                            fontWeight: 800,
-                            fontSize: '0.95rem',
-                            color: isProfitable ? '#34D399' : '#FB7185',
-                            letterSpacing: '-0.02em',
-                            lineHeight: 1.2
-                          }}>
-                            {isProfitable ? `+$${dayData.totalPnL.toFixed(2)}` : `-$${Math.abs(dayData.totalPnL).toFixed(2)}`}
+                        <div style={{ marginTop: 'auto' }}>
+                          <div
+                            className="font-mono calendar-day-pnl"
+                            style={{ color: isProfitable ? '#34D399' : '#FB7185' }}
+                          >
+                            {isProfitable ? `+$${dayData.totalPnL.toFixed(0)}` : `-$${Math.abs(dayData.totalPnL).toFixed(0)}`}
                           </div>
-
                           <div style={{
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '4px',
-                            fontSize: '0.65rem',
+                            gap: '2px',
+                            fontSize: '0.6rem',
                             color: 'var(--text-muted)',
-                            marginTop: '4px'
+                            marginTop: '2px'
                           }}>
                             <span style={{ color: '#34D399', fontWeight: 600 }}>{dayData.wins}W</span>
-                            <span>•</span>
+                            <span>·</span>
                             <span style={{ color: '#FB7185', fontWeight: 600 }}>{dayData.losses}L</span>
                           </div>
                         </div>
                       ) : (
-                        <div style={{ fontSize: '0.7rem', color: 'rgba(255, 255, 255, 0.05)', textAlign: 'center', marginTop: 'auto' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.05)', textAlign: 'center', marginTop: 'auto' }}>
                           -
                         </div>
                       )}
@@ -508,33 +479,24 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
                 })}
 
                 {/* 8th Column: Weekly Total PnL Cell */}
-                <div style={{
-                  background: weekHasTrades 
-                    ? 'rgba(99, 102, 241, 0.06)' 
-                    : 'rgba(255, 255, 255, 0.01)',
-                  border: '1px solid rgba(99, 102, 241, 0.18)',
-                  borderRadius: '10px',
-                  padding: '10px',
-                  minHeight: '105px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  textAlign: 'center'
-                }}>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', textTransform: 'uppercase', marginBottom: '4px' }}>
-                    Week {wIdx + 1}
+                <div
+                  className="calendar-week-cell"
+                  style={{
+                    background: weekHasTrades ? 'rgba(99, 102, 241, 0.06)' : 'rgba(255, 255, 255, 0.01)',
+                    border: '1px solid rgba(99, 102, 241, 0.18)',
+                  }}
+                >
+                  <span className="calendar-week-label">
+                    W{wIdx + 1}
                   </span>
                   {weekHasTrades ? (
-                    <span className="font-mono" style={{
-                      fontWeight: 800,
-                      fontSize: '0.95rem',
+                    <span className="font-mono calendar-week-pnl" style={{
                       color: weeklyPnL >= 0 ? '#34D399' : '#FB7185'
                     }}>
-                      {weeklyPnL >= 0 ? `+$${weeklyPnL.toFixed(2)}` : `-$${Math.abs(weeklyPnL).toFixed(2)}`}
+                      {formatWeekPnL(weeklyPnL)}
                     </span>
                   ) : (
-                    <span style={{ color: 'var(--text-dim)', fontSize: '0.8rem' }}>-</span>
+                    <span className="calendar-week-empty">-</span>
                   )}
                 </div>
               </div>
@@ -542,6 +504,8 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
           })}
         </div>
       </div>
+    </div>
+  </div>
 
       {/* Selected Day Inspector Panel */}
       {selectedDayData && (
@@ -602,7 +566,10 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
           </div>
 
           {/* List of Trades for Selected Day */}
-          <div style={{ overflowX: 'auto' }}>
+          <div className="mobile-scroll-hint">
+            <span>↔ Scroll horizontally to view day executions</span>
+          </div>
+          <div className="table-scroll-container">
             <table className="custom-table">
               <thead>
                 <tr>

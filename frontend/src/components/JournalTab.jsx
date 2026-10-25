@@ -27,12 +27,7 @@ export default function JournalTab({ trades, onSelectTrade }) {
   return (
     <div>
       {/* Top Insights Row */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-        gap: '20px',
-        marginBottom: '24px'
-      }}>
+      <div className="journal-insights-grid">
         {/* Setup Playbook Breakdown */}
         <div className="glass-panel" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
@@ -137,11 +132,7 @@ export default function JournalTab({ trades, onSelectTrade }) {
         </div>
 
         {journaledTrades.length > 0 ? (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
-            gap: '16px'
-          }}>
+          <div className="journal-feed-grid">
             {journaledTrades.map(trade => {
               const j = trade.journal_entry;
               const isWin = trade.net_pnl >= 0;

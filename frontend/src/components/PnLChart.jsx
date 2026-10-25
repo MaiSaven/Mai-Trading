@@ -56,14 +56,9 @@ export default function PnLChart({ summary }) {
   };
 
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-      gap: '20px',
-      marginBottom: '24px'
-    }}>
+    <div className="pnl-chart-grid">
       {/* Chart Panel */}
-      <div className="glass-panel" style={{ padding: '20px', minHeight: '340px', flex: 2 }}>
+      <div className="glass-panel" style={{ padding: '16px 20px', minHeight: '320px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <ChartIcon size={18} color="#818CF8" />

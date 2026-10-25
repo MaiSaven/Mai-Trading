@@ -159,7 +159,7 @@ export default function App() {
   };
 
   return (
-    <div style={{ maxWidth: '1440px', margin: '0 auto', padding: '24px 20px 60px' }}>
+    <div className="app-main-container">
       
       {/* Toast Notification */}
       {toast && (

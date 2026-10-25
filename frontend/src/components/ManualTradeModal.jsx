@@ -50,6 +50,8 @@ export default function ManualTradeModal({ onClose, onSave }) {
       <div className="glass-panel animate-fade-in" style={{
         width: '100%',
         maxWidth: '520px',
+        maxHeight: '90vh',
+        overflowY: 'auto',
         background: '#0F172A',
         border: '1px solid rgba(255, 255, 255, 0.12)',
         borderRadius: '16px',
@@ -60,7 +62,7 @@ export default function ManualTradeModal({ onClose, onSave }) {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          padding: '20px 24px',
+          padding: '16px 20px',
           borderBottom: '1px solid var(--border-color)'
         }}>
           <div>
@@ -84,8 +86,8 @@ export default function ManualTradeModal({ onClose, onSave }) {
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} style={{ padding: '24px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+        <form onSubmit={handleSubmit} style={{ padding: '16px 20px' }}>
+          <div className="modal-grid-2cols">
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
                 Symbol
@@ -131,7 +133,7 @@ export default function ManualTradeModal({ onClose, onSave }) {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+          <div className="modal-grid-3cols">
             <div>
               <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
                 Volume (lots)
