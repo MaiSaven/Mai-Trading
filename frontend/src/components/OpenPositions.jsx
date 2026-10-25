@@ -38,10 +38,6 @@ export default function OpenPositions({ positions }) {
         </div>
       </div>
 
-      <div className="mobile-scroll-hint">
-        <span>↔ Scroll horizontally to view all position columns</span>
-      </div>
-
       <div className="table-scroll-container">
         <table className="custom-table">
           <thead>

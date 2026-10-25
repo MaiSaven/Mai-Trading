@@ -145,11 +145,7 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
 
       {/* Trades Table */}
       {filteredTrades.length > 0 ? (
-        <>
-          <div className="mobile-scroll-hint">
-            <span>↔ Scroll horizontally to view full trade execution history</span>
-          </div>
-          <div className="table-scroll-container">
+        <div className="table-scroll-container">
             <table className="custom-table">
             <thead>
               <tr>
@@ -287,7 +283,6 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
             </tbody>
           </table>
         </div>
-      </>
       ) : (
         <div style={{
           textAlign: 'center',

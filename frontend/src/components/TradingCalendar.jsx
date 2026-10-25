@@ -340,9 +340,6 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
 
       {/* Calendar Grid Container */}
       <div className="glass-panel calendar-main-card">
-        <div className="mobile-scroll-hint">
-          <span>↔ Swipe horizontally to view full calendar days & weekly PnL</span>
-        </div>
         <div className="calendar-scroll-wrapper">
           <div className="calendar-inner-grid">
             {/* Day-of-Week Headers */}
@@ -595,9 +592,6 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
           </div>
 
           {/* List of Trades for Selected Day */}
-          <div className="mobile-scroll-hint">
-            <span>↔ Scroll horizontally to view day executions</span>
-          </div>
           <div className="table-scroll-container">
             <table className="custom-table">
               <thead>

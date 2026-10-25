@@ -37,21 +37,39 @@ body {
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* Scrollbar styling */
+/* Hide all scrollbars and scroll icons globally across all browsers */
+* {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+*::-webkit-scrollbar,
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  display: none !important;
+  width: 0px !important;
+  height: 0px !important;
+  background: transparent !important;
 }
-::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
+
+*::-webkit-scrollbar-button,
+::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0px !important;
+  height: 0px !important;
 }
+
+*::-webkit-scrollbar-thumb,
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 9999px;
+  display: none !important;
+  background: transparent !important;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+
+*::-webkit-scrollbar-track,
+::-webkit-scrollbar-track {
+  display: none !important;
+  background: transparent !important;
 }
+
 
 /* Glass card styling */
 .glass-panel {
@@ -196,7 +214,16 @@ body {
 .table-scroll-container {
   width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.table-scroll-container::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 /* Animations */
@@ -326,8 +353,17 @@ body {
 /* Trading Calendar Grid */
 .calendar-scroll-wrapper {
   overflow-x: auto;
+  overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   width: 100%;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.calendar-scroll-wrapper::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .calendar-inner-grid {
@@ -359,6 +395,7 @@ body {
 
 .calendar-main-card {
   padding: 20px 16px;
+  overflow: hidden;
 }
 
 /* Day-of-week & week PnL column headers */
@@ -461,10 +498,6 @@ body {
   margin-bottom: 14px;
 }
 
-.mobile-scroll-hint {
-  display: none;
-}
-
 /* ==========================================================================
    BREAKPOINTS: TABLET (<992px) & MOBILE (<768px)
    ========================================================================== */
@@ -542,19 +575,6 @@ body {
     grid-template-columns: repeat(2, 1fr);
     gap: 10px;
     padding: 12px 14px;
-  }
-
-  .mobile-scroll-hint {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.72rem;
-    color: #818CF8;
-    background: rgba(99, 102, 241, 0.1);
-    border: 1px dashed rgba(99, 102, 241, 0.3);
-    padding: 6px 10px;
-    border-radius: 8px;
-    margin-bottom: 10px;
   }
 
   .calendar-summary-strip {
