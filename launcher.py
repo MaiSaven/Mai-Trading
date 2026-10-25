@@ -687,32 +687,60 @@ class App(ctk.CTk):
     # One-Click Master Controls
     # -----------------------------------------------------------------------
     def start_all(self):
-        self.footer_status.configure(text="Starting all services...")
-        self.log("system", ">>> Launching all services in sequence...")
-
-        # 1. Start Backend
-        self.start_backend()
-
-        # 2. Start MT5 Sync Worker
-        self.start_mt5()
-
-        # 3. Start Frontend Dev Server
-        self.start_frontend()
-
-        # 4. Wait for ports and open browser in background thread
-        if self.auto_open_var.get():
-            threading.Thread(target=self._wait_and_open_browser, daemon=True).start()
-
         self.is_all_running = True
         self._update_master_btn()
+        self.footer_status.configure(text="Starting all services in sequence...")
+        self.log("system", ">>> Launching all services (Backend -> MT5 -> Frontend last)...")
+        threading.Thread(target=self._start_all_sequence, daemon=True).start()
+
+    def _start_all_sequence(self):
+        # 1. Start Backend API
+        if not self.is_all_running:
+            return
+        self.after(0, lambda: self.footer_status.configure(text="[1/3] Starting Backend API..."))
+        self.start_backend()
+
+        # Wait until Backend port is open (up to 20 seconds)
+        self.log("system", f"Waiting for Backend API on port {BACKEND_PORT}...")
+        for _ in range(40):
+            if not self.is_all_running:
+                return
+            if is_port_open(BACKEND_PORT):
+                self.log("system", f"Backend API is online on port {BACKEND_PORT}.")
+                break
+            time.sleep(0.5)
+        else:
+            self.log("system", f"[WARN] Backend port {BACKEND_PORT} wait timed out, continuing...")
+
+        if not self.is_all_running:
+            return
+
+        # 2. Start MT5 Sync Worker
+        self.after(0, lambda: self.footer_status.configure(text="[2/3] Starting MT5 Sync Worker..."))
+        self.start_mt5()
+        time.sleep(1.0)
+
+        if not self.is_all_running:
+            return
+
+        # 3. Start Frontend Dev Server in the last order
+        self.after(0, lambda: self.footer_status.configure(text="[3/3] Starting Frontend Dev Server..."))
+        self.log("system", f"Starting Frontend Dev Server on port {FRONTEND_PORT} in the last order...")
+        self.start_frontend()
+
+        # 4. Wait for Frontend port and open browser
+        if self.auto_open_var.get():
+            self._wait_and_open_browser()
+        else:
+            self.after(0, lambda: self.footer_status.configure(text="All services running."))
 
     def stop_all(self):
+        self.is_all_running = False
         self.footer_status.configure(text="Stopping all services...")
         self.log("system", ">>> Stopping all services...")
         self.stop_frontend()
         self.stop_mt5()
         self.stop_backend()
-        self.is_all_running = False
         self._update_master_btn()
         self.footer_status.configure(text="All services stopped.")
 
@@ -732,16 +760,20 @@ class App(ctk.CTk):
         """Polls until frontend port is open, then opens the browser."""
         self.log("system", f"Waiting for frontend on {FRONTEND_URL}...")
         for _ in range(40):
+            if not self.is_all_running:
+                return
             if is_port_open(FRONTEND_PORT):
                 time.sleep(0.5)
                 self.log("system", f"Frontend is UP! Opening {FRONTEND_URL} in your browser...")
                 webbrowser.open(FRONTEND_URL)
-                self.footer_status.configure(text=f"System live at {FRONTEND_URL}")
+                self.after(0, lambda: self.footer_status.configure(text=f"System live at {FRONTEND_URL}"))
                 return
             time.sleep(0.5)
         # Fallback if port check timed out
-        self.log("system", f"Opening browser at {FRONTEND_URL}...")
-        webbrowser.open(FRONTEND_URL)
+        if self.is_all_running:
+            self.log("system", f"Opening browser at {FRONTEND_URL}...")
+            webbrowser.open(FRONTEND_URL)
+            self.after(0, lambda: self.footer_status.configure(text=f"System live at {FRONTEND_URL}"))
 
     # -----------------------------------------------------------------------
     # Status Monitoring Loop
