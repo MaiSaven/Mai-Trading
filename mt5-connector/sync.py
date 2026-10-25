@@ -20,25 +20,56 @@ except ImportError:
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
+def load_env_file(env_path=None):
+    """Load environment variables from .env file into os.environ."""
+    if env_path is None:
+        env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    val = val.strip().strip("\"'")
+                    if key not in os.environ:
+                        os.environ[key] = val
+        except Exception as e:
+            print(f"[WARN] Failed to load .env: {e}")
+
+load_env_file()
+
 def load_config():
     defaults = {
-        "account_login": None,
-        "account_password": "",
-        "server": "",
-        "terminal_path": r"C:\Program Files\MetaTrader 5\terminal64.exe",
-        "backend_sync_url": "http://localhost:8000/api/v1/sync",
-        "api_key": "mai-trading-secret-key",
-        "sync_interval_seconds": 10,
-        "history_days": 60,
-        "auto_simulation_fallback": True
+        "account_login": os.getenv("ACCOUNT_LOGIN") or None,
+        "account_password": os.getenv("ACCOUNT_PASSWORD", ""),
+        "server": os.getenv("SERVER", ""),
+        "terminal_path": os.getenv("TERMINAL_PATH", r"C:\Program Files\MetaTrader 5\terminal64.exe"),
+        "backend_sync_url": os.getenv("BACKEND_SYNC_URL", "http://localhost:8000/api/v1/sync"),
+        "api_key": os.getenv("API_KEY", "mai-trading-secret-key"),
+        "sync_interval_seconds": int(os.getenv("SYNC_INTERVAL_SECONDS", "10")),
+        "history_days": int(os.getenv("HISTORY_DAYS", "60")),
+        "auto_simulation_fallback": os.getenv("AUTO_SIMULATION_FALLBACK", "false").lower() == "true"
     }
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, "r") as f:
                 user_conf = json.load(f)
-                defaults.update(user_conf)
+                defaults.update({k: v for k, v in user_conf.items() if v is not None})
         except Exception as e:
             print(f"[WARN] Could not parse config.json: {e}")
+
+    # Environment variables take precedence over config.json
+    if "BACKEND_SYNC_URL" in os.environ:
+        defaults["backend_sync_url"] = os.environ["BACKEND_SYNC_URL"]
+    if "API_KEY" in os.environ:
+        defaults["api_key"] = os.environ["API_KEY"]
+    if "SYNC_INTERVAL_SECONDS" in os.environ:
+        defaults["sync_interval_seconds"] = int(os.environ["SYNC_INTERVAL_SECONDS"])
+    if "HISTORY_DAYS" in os.environ:
+        defaults["history_days"] = int(os.environ["HISTORY_DAYS"])
     return defaults
 
 def init_mt5(config):
@@ -93,8 +124,8 @@ def run_simulation_sync(config):
     print("  Press Ctrl+C to stop.")
     print("=" * 60 + "\n")
 
-    backend_url = config.get("backend_sync_url", "http://localhost:8000/api/v1/sync")
-    api_key = config.get("api_key", "mai-trading-secret-key")
+    backend_url = config.get("backend_sync_url")
+    api_key = config.get("api_key")
     interval = config.get("sync_interval_seconds", 10)
 
     # First trigger demo seed on backend if needed
@@ -171,8 +202,8 @@ def run_simulation_sync(config):
         time.sleep(interval)
 
 def run_live_sync(config):
-    backend_url = config.get("backend_sync_url", "http://localhost:8000/api/v1/sync")
-    api_key = config.get("api_key", "mai-trading-secret-key")
+    backend_url = config.get("backend_sync_url")
+    api_key = config.get("api_key")
     interval = config.get("sync_interval_seconds", 10)
     history_days = config.get("history_days", 60)
 
@@ -230,7 +261,7 @@ def main():
         config["sync_interval_seconds"] = args.interval
 
     if args.seed:
-        backend_url = config.get("backend_sync_url", "http://localhost:8000/api/v1/sync")
+        backend_url = config.get("backend_sync_url")
         seed_url = backend_url.replace("/sync", "/sync/seed-demo")
         try:
             res = requests.post(seed_url, timeout=5)

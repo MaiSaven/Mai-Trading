@@ -27,24 +27,58 @@ A high-performance trading journal, analytics dashboard, and MetaTrader 5 connec
 
 ## Quickstart Guide
 
+### 🚀 One-Click Launcher (Recommended)
+You can start Backend, MT5 Sync Worker, and Frontend all together and automatically open the web dashboard with a single click:
+
+- **Option A (Desktop App)**: Double-click **`MAI Trading`** directly on your Windows Desktop (or run `python create_desktop_shortcut.py` to regenerate the shortcut). It uses `pythonw.exe` so no command prompt window appears.
+- **Option B (Double-click batch file)**: Double-click `start.bat` or run:
+  ```bash
+  python launcher.py
+  ```
+- **Option C (Build Standalone .exe)**: Run `build_exe.bat` to compile into `dist/MAI-Trading/MAI-Trading.exe`.
+
+Click **"🚀 START ALL & OPEN WEB"** — the launcher runs all services in the background, streams their live logs into unified tabs, and opens `http://localhost:5173` in your browser.
+
+
+How to build exe
+pip install pyinstaller
+pyinstaller --noconfirm --onedir --windowed --name "MAI-Trading" --clean launcher.py
+
+
+---
+
+### Manual Step-by-Step Start
+
 ### 1. Start Backend API Server
+Configure `backend/.env` (see `backend/.env.example` for reference):
+- `PORT`: Server port (default: 8000)
+- `HOST`: Server host (default: 0.0.0.0)
+- `CORS_ORIGINS`: Allowed frontend origins (e.g. `http://localhost:5173`)
+
 ```bash
 cd backend
 pip install fastapi uvicorn sqlalchemy pydantic requests
 uvicorn main:app --reload --port 8000
+# Or run with configured env port:
+python main.py
 ```
-- API Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-- Health Check: [http://localhost:8000/](http://localhost:8000/)
+- API Docs: `http://localhost:<PORT>/docs`
+- Health Check: `http://localhost:<PORT>/`
 
 ---
 
 ### 2. Launch Modern React Dashboard
+Configure `frontend/.env` (see `frontend/.env.example` for reference):
+- `VITE_PORT`: Frontend dev server port (default: 5173)
+- `VITE_API_BASE_URL`: Full URL to backend API (e.g. `http://localhost:8000/api/v1`)
+- `VITE_BACKEND_TARGET`: Target for Vite `/api` proxy (e.g. `http://localhost:8000`)
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-- Open in browser: [http://localhost:5173](http://localhost:5173)
+- Open in browser: `http://localhost:<VITE_PORT>`
 
 ---
 

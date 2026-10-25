@@ -1,16 +1,7 @@
 import os
 from sqlalchemy import create_engine, MetaData, text
 from sqlalchemy.orm import sessionmaker, declarative_base
-
-# PostgreSQL connection string
-# JDBC: jdbc:postgresql://localhost:5432/mai-trading
-# SQLAlchemy: postgresql+psycopg2://postgres:9669@localhost:5432/mai-trading
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+psycopg2://postgres:9669@localhost:5432/mai-trading"
-)
-
-SCHEMA_NAME = os.getenv("DB_SCHEMA", "trading")
+from config import DATABASE_URL, DB_SCHEMA as SCHEMA_NAME
 
 engine = create_engine(
     DATABASE_URL,

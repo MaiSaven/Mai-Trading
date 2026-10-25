@@ -26,6 +26,7 @@ env/
 
 # -- Sensitive config (keep .env.example, ignore real secrets) -
 backend/.env
+frontend/.env
 mt5-connector/.env
 .env
 

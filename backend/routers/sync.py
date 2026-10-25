@@ -8,14 +8,9 @@ from models import Account, Deal, Trade, Position, JournalEntry
 from schemas import SyncPayload
 from trade_matching import process_deal_matching
 
-# ---------------------------------------------------------------------------
-# Feature flags – read once at startup from environment / .env
-# ---------------------------------------------------------------------------
-ENABLE_DEMO_DATA: bool = os.getenv("ENABLE_DEMO_DATA", "false").strip().lower() == "true"
+from config import ENABLE_DEMO_DATA, API_KEY
 
 router = APIRouter(prefix="/api/v1", tags=["Sync"])
-
-API_KEY = "mai-trading-secret-key"
 
 @router.post("/sync")
 def sync_data(
