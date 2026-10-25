@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Activity, 
   RefreshCw, 
@@ -27,6 +27,35 @@ export default function Header({
   onSwitchAccount
 }) {
   const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const accountMenuRef = useRef(null);
+
+  // Close account dropdown when clicking anywhere outside or pressing Escape
+  useEffect(() => {
+    if (!showAccountMenu) return;
+
+    const handleClickOutside = (event) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target)) {
+        setShowAccountMenu(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setShowAccountMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showAccountMenu]);
+
   const isConnected = syncStatus?.connected;
   const brokerName = syncStatus?.account?.broker || "MetaTrader 5";
   const accountId = syncStatus?.account?.account_id;
@@ -86,7 +115,7 @@ export default function Header({
 
           {/* Account Switcher */}
           {accounts.length > 0 && (
-            <div style={{ position: 'relative' }}>
+            <div ref={accountMenuRef} style={{ position: 'relative', zIndex: 120 }}>
               <button
                 onClick={() => setShowAccountMenu(v => !v)}
                 style={{
@@ -119,14 +148,14 @@ export default function Header({
                   position: 'absolute',
                   top: 'calc(100% + 8px)',
                   left: 0,
-                  background: '#1e1e2e',
-                  border: '1px solid rgba(255,255,255,0.1)',
+                  background: '#181825',
+                  border: '1px solid rgba(255,255,255,0.15)',
                   borderRadius: '12px',
                   padding: '8px',
-                  zIndex: 1000,
-                  minWidth: '240px',
+                  zIndex: 9999,
+                  minWidth: '260px',
                   maxWidth: 'calc(100vw - 32px)',
-                  boxShadow: '0 20px 50px rgba(0,0,0,0.5)'
+                  boxShadow: '0 20px 50px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.08)'
                 }}>
                   <div style={{ padding: '4px 8px 8px', fontSize: '0.7rem', color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
                     Switch Account

@@ -258,6 +258,8 @@ body {
 
 /* Header Elements */
 .header-container {
+  position: relative;
+  z-index: 100;
   padding: 16px 24px;
   margin-bottom: 24px;
 }
