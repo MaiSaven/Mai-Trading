@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { formatLocalDateTime } from '../utils/dateUtils';
 import { 
   Search, 
   Filter, 
@@ -164,12 +165,7 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
               {filteredTrades.map(trade => {
                 const isWin = trade.net_pnl >= 0;
                 const journal = trade.journal_entry;
-                const dateStr = trade.close_time ? new Date(trade.close_time).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                }) : 'N/A';
+                const dateStr = formatLocalDateTime(trade.close_time);
 
                 return (
                   <tr key={trade.id}>

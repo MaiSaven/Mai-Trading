@@ -10,6 +10,24 @@ from trade_matching import process_deal_matching
 
 from config import ENABLE_DEMO_DATA, API_KEY
 
+# ---------------------------------------------------------------------------
+# Broker timezone correction
+# MT5 reports pos.time / deal.time in broker server time, NOT true Unix UTC.
+# Broker: UTC+3  |  Your local: UTC+7
+# Subtract broker offset so the DB always stores real UTC.
+# The frontend then converts UTC → UTC+7 automatically via the browser.
+# ---------------------------------------------------------------------------
+# Change this if you switch brokers
+# Current broker is UTC+3 so chnage to my local UTC+7
+BROKER_UTC_OFFSET_HOURS = 4  
+
+def broker_ts_to_utc(ts: int) -> datetime:
+    """Convert a broker-timezone Unix-like timestamp to a real UTC datetime."""
+    if ts <= 0:
+        return datetime.utcnow()
+    real_utc_ts = ts + BROKER_UTC_OFFSET_HOURS * 3600
+    return datetime.utcfromtimestamp(real_utc_ts)
+
 router = APIRouter(prefix="/api/v1", tags=["Sync"])
 
 @router.post("/sync")
@@ -50,7 +68,7 @@ def sync_data(
 
     for p in payload.positions:
         pos = db.query(Position).filter(Position.ticket == p.ticket).first()
-        pos_time = datetime.fromtimestamp(p.time) if p.time > 0 else datetime.utcnow()
+        pos_time = broker_ts_to_utc(p.time)
         if not pos:
             pos = Position(
                 account_id=current_account_id,
@@ -84,7 +102,7 @@ def sync_data(
     for d in payload.deals:
         existing = db.query(Deal).filter(Deal.deal_id == d.deal_id).first()
         if not existing:
-            deal_time = datetime.fromtimestamp(d.time) if d.time > 0 else datetime.utcnow()
+            deal_time = broker_ts_to_utc(d.time)
             deal = Deal(
                 account_id=current_account_id,
                 deal_id=d.deal_id,

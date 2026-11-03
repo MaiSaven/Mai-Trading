@@ -1,9 +1,13 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import MetaTrader5 as mt5
 
+# Broker server is UTC+3; history_deals_get() expects broker-local datetime.
+BROKER_TZ = timezone(timedelta(hours=0))
+
 def get_deal_history(days=60):
-    from_date = datetime.now() - timedelta(days=days)
-    to_date = datetime.now() + timedelta(days=1)
+    now_broker = datetime.now(BROKER_TZ).replace(tzinfo=None)  # naive broker time
+    from_date = now_broker - timedelta(days=days)
+    to_date   = now_broker + timedelta(days=1)
     
     try:
         deals = mt5.history_deals_get(from_date, to_date)

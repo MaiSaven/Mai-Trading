@@ -1,3 +1,4 @@
+import { toLocalDate, formatLocalTime } from '../utils/dateUtils';
 import React, { useState, useMemo } from 'react';
 import { 
   ChevronLeft, 
@@ -39,7 +40,7 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
     if (trades && trades.length > 0) {
       const latestTrade = trades[0];
       if (latestTrade.close_time) {
-        return new Date(latestTrade.close_time);
+        return toLocalDate(latestTrade.close_time);
       }
     }
     return new Date();
@@ -63,7 +64,8 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
     filteredTrades.forEach(trade => {
       const dateVal = trade.close_time || trade.open_time;
       if (!dateVal) return;
-      const d = new Date(dateVal);
+      const d = toLocalDate(dateVal);
+      if (!d) return;
       const year = d.getFullYear();
       const month = String(d.getMonth() + 1).padStart(2, '0');
       const day = String(d.getDate()).padStart(2, '0');
@@ -612,10 +614,7 @@ export default function TradingCalendar({ trades, onSelectTrade }) {
                 {selectedDayData.trades.map(trade => {
                   const isWin = trade.net_pnl >= 0;
                   const j = trade.journal_entry;
-                  const timeStr = trade.close_time ? new Date(trade.close_time).toLocaleTimeString('en-US', {
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  }) : 'N/A';
+                  const timeStr = formatLocalTime(trade.close_time);
 
                   return (
                     <tr key={trade.id}>

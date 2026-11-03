@@ -5,7 +5,10 @@ import time
 import random
 import argparse
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+# Local timezone: UTC+7 (Asia/Bangkok)
+TZ_LOCAL = timezone(timedelta(hours=0))
 
 # Import connector helpers
 from account import get_account_info
@@ -195,9 +198,9 @@ def run_simulation_sync(config):
 
             headers = {"X-API-Key": api_key}
             res = requests.post(backend_url, json=payload, headers=headers, timeout=5)
-            print(f"[{time.strftime('%H:%M:%S')}] Simulated Sync: status={res.status_code} | Equity=${sim_equity:,.2f} | Floating PnL=${total_floating:+,.2f}")
+            print(f"[{datetime.now(TZ_LOCAL).strftime('%H:%M:%S')}] Simulated Sync: status={res.status_code} | Equity=${sim_equity:,.2f} | Floating PnL=${total_floating:+,.2f}")
         except Exception as e:
-            print(f"[{time.strftime('%H:%M:%S')}] Sim Sync Error: {e}")
+            print(f"[{datetime.now(TZ_LOCAL).strftime('%H:%M:%S')}] Sim Sync Error: {e}")
 
         time.sleep(interval)
 
@@ -218,7 +221,7 @@ def run_live_sync(config):
         while True:
             account = get_account_info()
             if not account:
-                print(f"[{time.strftime('%H:%M:%S')}] [WARN] MT5 not authorized or disconnected. Re-checking...")
+                print(f"[{datetime.now(TZ_LOCAL).strftime('%H:%M:%S')}] [WARN] MT5 not authorized or disconnected. Re-checking...")
                 time.sleep(interval)
                 continue
 
@@ -236,11 +239,11 @@ def run_live_sync(config):
                 res = requests.post(backend_url, json=payload, headers=headers, timeout=6)
                 if res.status_code == 200:
                     data = res.json()
-                    print(f"[{time.strftime('%H:%M:%S')}] Synced: {len(positions)} open pos, {len(deals)} deals | Balance: ${account['balance']:,.2f}")
+                    print(f"[{datetime.now(TZ_LOCAL).strftime('%H:%M:%S')}] Synced: {len(positions)} open pos, {len(deals)} deals | Balance: ${account['balance']:,.2f}")
                 else:
-                    print(f"[{time.strftime('%H:%M:%S')}] Sync Warning: HTTP {res.status_code} - {res.text}")
+                    print(f"[{datetime.now(TZ_LOCAL).strftime('%H:%M:%S')}] Sync Warning: HTTP {res.status_code} - {res.text}")
             except Exception as e:
-                print(f"[{time.strftime('%H:%M:%S')}] Backend Connection Error: {e}")
+                print(f"[{datetime.now(TZ_LOCAL).strftime('%H:%M:%S')}] Backend Connection Error: {e}")
 
             time.sleep(interval)
     except KeyboardInterrupt:

@@ -27,4 +27,4 @@ def get_open_positions():
             })
         except Exception:
             continue
-    return result
+    return result
