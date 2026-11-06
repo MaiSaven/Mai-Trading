@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { formatLocalDateTime } from '../utils/dateUtils';
+import { formatLocalDateTime, toLocalDate } from '../utils/dateUtils';
 import { 
   Search, 
   Filter, 
@@ -7,20 +7,27 @@ import {
   MessageSquare, 
   Trash2, 
   ArrowRight,
-  ExternalLink
+  ExternalLink,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
   const [search, setSearch] = useState('');
   const [outcomeFilter, setOutcomeFilter] = useState('all');
   const [symbolFilter, setSymbolFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState('all');
+  const [pageSize, setPageSize] = useState('50');
+  const [currentPage, setCurrentPage] = useState(1);
 
   const symbols = Array.from(new Set(trades.map(t => t.symbol))).filter(Boolean);
 
   const filteredTrades = trades.filter(t => {
     // Search filter
+    const dateStr = formatLocalDateTime(t.close_time || t.open_time);
     const matchesSearch = 
       t.symbol.toLowerCase().includes(search.toLowerCase()) ||
+      dateStr.toLowerCase().includes(search.toLowerCase()) ||
       (t.journal_entry?.setup || '').toLowerCase().includes(search.toLowerCase()) ||
       (t.journal_entry?.emotion || '').toLowerCase().includes(search.toLowerCase()) ||
       (t.journal_entry?.notes || '').toLowerCase().includes(search.toLowerCase());
@@ -34,8 +41,43 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
     // Symbol filter
     const matchesSymbol = symbolFilter === 'all' ? true : t.symbol === symbolFilter;
 
-    return matchesSearch && matchesOutcome && matchesSymbol;
+    // Date filter
+    let matchesDate = true;
+    if (dateFilter !== 'all') {
+      const d = toLocalDate(t.close_time || t.open_time);
+      if (!d) {
+        matchesDate = false;
+      } else {
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+        const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+
+        if (dateFilter === 'today') {
+          matchesDate = d >= startOfToday && d < startOfTomorrow;
+        } else if (dateFilter === 'yesterday') {
+          matchesDate = d >= startOfYesterday && d < startOfToday;
+        } else if (dateFilter === 'week') {
+          const sevenDaysAgo = new Date(startOfToday.getTime() - 6 * 24 * 60 * 60 * 1000);
+          matchesDate = d >= sevenDaysAgo && d < startOfTomorrow;
+        } else if (dateFilter === 'month') {
+          matchesDate = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+        }
+      }
+    }
+
+    return matchesSearch && matchesOutcome && matchesSymbol && matchesDate;
   });
+
+  // Pagination calculation
+  const totalItems = filteredTrades.length;
+  const isAll = pageSize === 'all';
+  const sizeNum = isAll ? totalItems : Number(pageSize);
+  const totalPages = isAll ? 1 : Math.max(1, Math.ceil(totalItems / sizeNum));
+  const validPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = isAll ? 0 : (validPage - 1) * sizeNum;
+  const endIndex = isAll ? totalItems : Math.min(startIndex + sizeNum, totalItems);
+  const displayedTrades = isAll ? filteredTrades : filteredTrades.slice(startIndex, endIndex);
 
   return (
     <div className="glass-panel" style={{ padding: '20px' }}>
@@ -57,12 +99,14 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
             fontSize: '0.75rem',
             color: 'var(--text-muted)'
           }}>
-            {filteredTrades.length} of {trades.length}
+            {isAll
+              ? `${filteredTrades.length} of ${trades.length}`
+              : `${totalItems === 0 ? 0 : startIndex + 1}-${endIndex} of ${totalItems} (${trades.length} total)`}
           </span>
         </div>
 
         {/* Filter Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', width: '100%', maxWidth: '600px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', width: '100%', maxWidth: '780px' }}>
           {/* Search box */}
           <div style={{
             display: 'flex',
@@ -72,15 +116,18 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
             border: '1px solid var(--border-color)',
             borderRadius: '8px',
             padding: '6px 12px',
-            flex: '1 1 180px',
-            minWidth: '140px'
+            flex: '1 1 160px',
+            minWidth: '130px'
           }}>
             <Search size={14} color="var(--text-dim)" />
             <input
               type="text"
-              placeholder="Filter symbol, setup, notes..."
+              placeholder="Filter symbol, date, notes..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setCurrentPage(1);
+              }}
               style={{
                 background: 'transparent',
                 border: 'none',
@@ -103,7 +150,10 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
             {['all', 'win', 'loss'].map(mode => (
               <button
                 key={mode}
-                onClick={() => setOutcomeFilter(mode)}
+                onClick={() => {
+                  setOutcomeFilter(mode);
+                  setCurrentPage(1);
+                }}
                 style={{
                   background: outcomeFilter === mode ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
                   color: outcomeFilter === mode ? 'white' : 'var(--text-dim)',
@@ -121,11 +171,39 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
             ))}
           </div>
 
+          {/* Date Select */}
+          <select
+            value={dateFilter}
+            onChange={(e) => {
+              setDateFilter(e.target.value);
+              setCurrentPage(1);
+            }}
+            style={{
+              background: 'rgba(0, 0, 0, 0.3)',
+              color: 'var(--text-main)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '8px',
+              padding: '6px 10px',
+              fontSize: '0.75rem',
+              outline: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            <option value="all">All Dates</option>
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="week">Last 7 Days</option>
+            <option value="month">This Month</option>
+          </select>
+
           {/* Symbol Select */}
           {symbols.length > 0 && (
             <select
               value={symbolFilter}
-              onChange={(e) => setSymbolFilter(e.target.value)}
+              onChange={(e) => {
+                setSymbolFilter(e.target.value);
+                setCurrentPage(1);
+              }}
               style={{
                 background: 'rgba(0, 0, 0, 0.3)',
                 color: 'var(--text-main)',
@@ -141,12 +219,38 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
               {symbols.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           )}
+
+          {/* Page Size Select */}
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(e.target.value);
+              setCurrentPage(1);
+            }}
+            style={{
+              background: 'rgba(0, 0, 0, 0.3)',
+              color: 'var(--text-main)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '8px',
+              padding: '6px 10px',
+              fontSize: '0.75rem',
+              outline: 'none',
+              cursor: 'pointer'
+            }}
+            title="Entries per page"
+          >
+            <option value="50">50 / page</option>
+            <option value="100">100 / page</option>
+            <option value="250">250 / page</option>
+            <option value="all">Show All</option>
+          </select>
         </div>
       </div>
 
       {/* Trades Table */}
-      {filteredTrades.length > 0 ? (
-        <div className="table-scroll-container">
+      {displayedTrades.length > 0 ? (
+        <>
+          <div className="table-scroll-container">
             <table className="custom-table">
             <thead>
               <tr>
@@ -162,7 +266,7 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
               </tr>
             </thead>
             <tbody>
-              {filteredTrades.map(trade => {
+              {displayedTrades.map(trade => {
                 const isWin = trade.net_pnl >= 0;
                 const journal = trade.journal_entry;
                 const dateStr = formatLocalDateTime(trade.close_time);
@@ -279,6 +383,64 @@ export default function TradeList({ trades, onSelectTrade, onDeleteTrade }) {
             </tbody>
           </table>
         </div>
+
+        {/* Optional Pagination Footer */}
+        {!isAll && totalPages > 1 && (
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginTop: '16px',
+            paddingTop: '12px',
+            borderTop: '1px solid var(--border-color)',
+            fontSize: '0.8rem',
+            color: 'var(--text-dim)',
+            flexWrap: 'wrap',
+            gap: '8px'
+          }}>
+            <div>
+              Showing {startIndex + 1} - {endIndex} of {totalItems} trades
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={validPage <= 1}
+                className="btn-secondary"
+                style={{
+                  padding: '4px 8px',
+                  fontSize: '0.75rem',
+                  opacity: validPage <= 1 ? 0.4 : 1,
+                  cursor: validPage <= 1 ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                <ChevronLeft size={14} /> Previous
+              </button>
+              <span>
+                Page {validPage} of {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={validPage >= totalPages}
+                className="btn-secondary"
+                style={{
+                  padding: '4px 8px',
+                  fontSize: '0.75rem',
+                  opacity: validPage >= totalPages ? 0.4 : 1,
+                  cursor: validPage >= totalPages ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                Next <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+      </>
       ) : (
         <div style={{
           textAlign: 'center',

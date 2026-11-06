@@ -15,7 +15,7 @@ def get_trades(
     trade_type: Optional[str] = None,
     outcome: Optional[str] = Query(None, description="'win', 'loss', or 'all'"),
     search: Optional[str] = None,
-    limit: int = 100,
+    limit: Optional[int] = None,
     offset: int = 0,
     db: Session = Depends(get_db)
 ):
@@ -41,7 +41,13 @@ def get_trades(
             (JournalEntry.notes.ilike(search_filter))
         )
 
-    return query.order_by(Trade.close_time.desc()).offset(offset).limit(limit).all()
+    query = query.order_by(Trade.close_time.desc())
+    if offset:
+        query = query.offset(offset)
+    if limit is not None:
+        query = query.limit(limit)
+
+    return query.all()
 
 @router.get("/{trade_id}", response_model=TradeResponse)
 def get_trade_by_id(trade_id: int, db: Session = Depends(get_db)):
