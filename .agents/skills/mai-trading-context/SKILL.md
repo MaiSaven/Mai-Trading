@@ -43,6 +43,8 @@ MAI-TRADING/
 │       └── mai-trading-context/
 │           └── SKILL.md              ← this file
 ├── .venv/                            ← Python venv (Windows)
+├── DEPLOYMENT.md                     ← Vercel + Neon production deployment & env vars guide
+├── vercel.json                       ← Root Vercel Services multi-project routing config
 ├── backend/
 │   ├── .env                          ← secrets (never commit real values)
 │   ├── .env.example

@@ -2,6 +2,11 @@
 
 A high-performance trading journal, analytics dashboard, and MetaTrader 5 connector designed for modern forex, commodity, and crypto traders.
 
+> 📖 **Production & Cloud Deployment Guide:**  
+> For complete Vercel environment variables, Neon PostgreSQL details, and MT5 EA setup, see **[`DEPLOYMENT.md`](./DEPLOYMENT.md)**.
+> - Production Web: https://mai-trading.vercel.app
+> - Health Check: https://mai-trading.vercel.app/api/health
+
 ---
 
 ## Architecture Overview
