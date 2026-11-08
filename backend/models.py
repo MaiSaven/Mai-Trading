@@ -1,13 +1,37 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, BigInteger
+from sqlalchemy import Column, Integer, String, Float, DateTime, Text, ForeignKey, BigInteger, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    google_id = Column(String, unique=True, index=True, nullable=True)
+    email = Column(String, unique=True, index=True)
+    name = Column(String, nullable=True)
+    picture = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_login = Column(DateTime, default=datetime.utcnow)
+
+    accounts = relationship("Account", back_populates="user")
+
+class Broker(Base):
+    __tablename__ = "brokers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, index=True)
+    server = Column(String, default="", index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class Account(Base):
     __tablename__ = "accounts"
 
     id = Column(Integer, primary_key=True, index=True)
     account_id = Column(BigInteger, unique=True, index=True)
+    login = Column(BigInteger, nullable=True, index=True)
+    server = Column(String, default="")
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     broker = Column(String, default="Unknown Broker")
     currency = Column(String, default="USD")
     balance = Column(Float, default=0.0)
@@ -18,6 +42,7 @@ class Account(Base):
     profit = Column(Float, default=0.0)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
+    user = relationship("User", back_populates="accounts")
     positions = relationship("Position", back_populates="account", cascade="all, delete-orphan")
     deals = relationship("Deal", back_populates="account", cascade="all, delete-orphan")
     trades = relationship("Trade", back_populates="account", cascade="all, delete-orphan")
@@ -77,7 +102,7 @@ class Trade(Base):
     entry_price = Column(Float, default=0.0)
     exit_price = Column(Float, default=0.0)
     open_time = Column(DateTime, default=datetime.utcnow)
-    close_time = Column(DateTime, default=datetime.utcnow)
+    close_time = Column(DateTime, default=datetime.utcnow, index=True)
     gross_profit = Column(Float, default=0.0)
     commission = Column(Float, default=0.0)
     swap = Column(Float, default=0.0)
@@ -85,7 +110,13 @@ class Trade(Base):
     status = Column(String, default="CLOSED")
 
     account = relationship("Account", back_populates="trades")
-    journal_entry = relationship("JournalEntry", back_populates="trade", uselist=False, cascade="all, delete-orphan")
+    journal_entry = relationship("JournalEntry", back_populates="trade", uselist=False, cascade="all, delete-orphan", lazy="joined")
+
+    # Composite indexes for the most common query patterns
+    __table_args__ = (
+        Index("ix_trades_account_close", "account_id", "close_time"),
+        Index("ix_trades_account_pnl",   "account_id", "net_pnl"),
+    )
 
 
 class JournalEntry(Base):

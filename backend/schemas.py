@@ -4,6 +4,8 @@ from datetime import datetime
 
 class AccountSchema(BaseModel):
     account_id: int
+    login: Optional[int] = None
+    server: Optional[str] = ""
     broker: str = "MetaQuotes-Demo"
     currency: str = "USD"
     balance: float = 0.0
@@ -58,6 +60,12 @@ class DealSchema(BaseModel):
     commission: float = 0.0
     swap: float = 0.0
     time: int
+
+class PaginatedTrades(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: List["TradeResponse"]
 
 class SyncPayload(BaseModel):
     account: AccountSchema
@@ -147,3 +155,23 @@ class AnalyticsSummary(BaseModel):
     expectancy: float
     symbols_breakdown: Dict[str, Dict[str, Any]] = {}
     pnl_curve: List[PnLPoint] = []
+
+# --- Authentication Schemas ---
+class GoogleLoginRequest(BaseModel):
+    credential: str
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    name: Optional[str] = None
+    picture: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+        orm_mode = True
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse

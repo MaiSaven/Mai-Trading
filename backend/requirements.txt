@@ -1,0 +1,15 @@
+fastapi==0.141.1
+uvicorn==0.52.3
+sqlalchemy==2.1.6
+psycopg2-binary==2.9.13
+pydantic==2.13.4
+PyJWT==2.15.1
+google-auth==2.62.1
+httpx==0.28.1
+python-multipart==0.0.32
+cryptography==50.0.0
+aiohttp==3.14.3
+requests==2.34.2
+starlette==1.6.0
+itsdangerous==2.2.0
+

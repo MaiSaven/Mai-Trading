@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
 import models  # Ensure all SQLAlchemy models are registered
-from routers import sync, trades, journal, analytics, positions, accounts
+from routers import sync, trades, journal, analytics, positions, accounts, auth
 
 from config import CORS_ORIGINS, HOST, PORT
 
@@ -30,6 +30,7 @@ app.include_router(journal.router)
 app.include_router(analytics.router)
 app.include_router(positions.router)
 app.include_router(accounts.router)
+app.include_router(auth.router)
 
 @app.get("/")
 def root():

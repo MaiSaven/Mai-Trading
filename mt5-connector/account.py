@@ -7,6 +7,8 @@ def get_account_info():
         
     return {
         "account_id": int(info.login),
+        "login": int(info.login),
+        "server": str(info.server or ""),
         "broker": str(info.company or "MetaTrader 5 Broker"),
         "currency": str(info.currency or "USD"),
         "balance": float(info.balance),

@@ -52,6 +52,8 @@ def load_config():
         "terminal_path": os.getenv("TERMINAL_PATH", r"C:\Program Files\MetaTrader 5\terminal64.exe"),
         "backend_sync_url": os.getenv("BACKEND_SYNC_URL", "http://localhost:8000/api/v1/sync"),
         "api_key": os.getenv("API_KEY", "mai-trading-secret-key"),
+        "user_token": os.getenv("USER_TOKEN", ""),
+        "user_email": os.getenv("USER_EMAIL", ""),
         "sync_interval_seconds": int(os.getenv("SYNC_INTERVAL_SECONDS", "10")),
         "history_days": int(os.getenv("HISTORY_DAYS", "60")),
         "auto_simulation_fallback": os.getenv("AUTO_SIMULATION_FALLBACK", "false").lower() == "true"
@@ -69,6 +71,10 @@ def load_config():
         defaults["backend_sync_url"] = os.environ["BACKEND_SYNC_URL"]
     if "API_KEY" in os.environ:
         defaults["api_key"] = os.environ["API_KEY"]
+    if "USER_TOKEN" in os.environ:
+        defaults["user_token"] = os.environ["USER_TOKEN"]
+    if "USER_EMAIL" in os.environ:
+        defaults["user_email"] = os.environ["USER_EMAIL"]
     if "SYNC_INTERVAL_SECONDS" in os.environ:
         defaults["sync_interval_seconds"] = int(os.environ["SYNC_INTERVAL_SECONDS"])
     if "HISTORY_DAYS" in os.environ:
@@ -197,6 +203,11 @@ def run_simulation_sync(config):
             }
 
             headers = {"X-API-Key": api_key}
+            if config.get("user_token"):
+                headers["Authorization"] = f"Bearer {config.get('user_token')}"
+            elif config.get("user_email"):
+                headers["X-User-Email"] = config.get("user_email")
+
             res = requests.post(backend_url, json=payload, headers=headers, timeout=5)
             print(f"[{datetime.now(TZ_LOCAL).strftime('%H:%M:%S')}] Simulated Sync: status={res.status_code} | Equity=${sim_equity:,.2f} | Floating PnL=${total_floating:+,.2f}")
         except Exception as e:
@@ -235,6 +246,11 @@ def run_live_sync(config):
             }
 
             headers = {"X-API-Key": api_key}
+            if config.get("user_token"):
+                headers["Authorization"] = f"Bearer {config.get('user_token')}"
+            elif config.get("user_email"):
+                headers["X-User-Email"] = config.get("user_email")
+
             try:
                 res = requests.post(backend_url, json=payload, headers=headers, timeout=6)
                 if res.status_code == 200:

@@ -105,3 +105,12 @@ To seed sample historical trades directly into SQLite:
 ```bash
 python sync.py --seed
 ```
+
+
+Quick install steps (on the MT5 VPS)
+1. Copy MAI_Sync.mq5 → MT5/MQL5/Experts/
+2. MetaEditor → open → F7 to compile → confirm 0 errors
+3. MT5 → Tools → Options → Expert Advisors → Allow WebRequests → add your server URL
+4. Drag MAI_Sync onto any chart → set ServerURL, APIKey in Inputs → OK
+5. Watch the Experts log for MAI Sync OK [200]
+6. On the web UI: Link New Account → enter MT5 login + select broker

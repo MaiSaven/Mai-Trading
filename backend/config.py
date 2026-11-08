@@ -45,5 +45,12 @@ DB_SCHEMA: str = os.getenv("DB_SCHEMA", "trading")
 # Security Settings
 API_KEY: str = os.getenv("API_KEY", "mai-trading-secret-key")
 
+# Google OAuth & JWT Settings
+GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
+JWT_SECRET: str = os.getenv("JWT_SECRET", "mai-trading-jwt-secret-key-super-secure-change-in-prod")
+JWT_ALGORITHM: str = "HS256"
+JWT_EXPIRATION_HOURS: int = int(os.getenv("JWT_EXPIRATION_HOURS", "720"))  # 30 days default
+
 # Demo Data Setting
 ENABLE_DEMO_DATA: bool = os.getenv("ENABLE_DEMO_DATA", "false").strip().lower() == "true"

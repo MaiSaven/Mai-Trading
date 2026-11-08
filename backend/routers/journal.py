@@ -1,16 +1,33 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import JournalEntry, Trade
+from models import JournalEntry, Trade, Account, User
 from schemas import JournalCreate, JournalResponse
+from routers.auth import get_current_user
 
 router = APIRouter(prefix="/api/v1/journal", tags=["Journal"])
 
-@router.post("", response_model=JournalResponse)
-def create_or_update_journal(entry: JournalCreate, db: Session = Depends(get_db)):
-    trade = db.query(Trade).filter(Trade.id == entry.trade_id).first()
+def _assert_trade_ownership(db: Session, trade_id: int, current_user: User) -> Trade:
+    """Return the trade if user owns it, else raise 403."""
+    trade = db.query(Trade).filter(Trade.id == trade_id).first()
     if not trade:
         raise HTTPException(status_code=404, detail="Trade not found")
+    if trade.account_id:
+        owned_ids = [
+            a.account_id for a in
+            db.query(Account).filter(Account.user_id == current_user.id).all()
+        ]
+        if trade.account_id not in owned_ids:
+            raise HTTPException(status_code=403, detail="Access denied: you do not own this trade")
+    return trade
+
+@router.post("", response_model=JournalResponse)
+def create_or_update_journal(
+    entry: JournalCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    _assert_trade_ownership(db, entry.trade_id, current_user)
 
     existing = db.query(JournalEntry).filter(JournalEntry.trade_id == entry.trade_id).first()
     if existing:
@@ -37,7 +54,12 @@ def create_or_update_journal(entry: JournalCreate, db: Session = Depends(get_db)
     return new_entry
 
 @router.delete("/{trade_id}")
-def delete_journal_entry(trade_id: int, db: Session = Depends(get_db)):
+def delete_journal_entry(
+    trade_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    _assert_trade_ownership(db, trade_id, current_user)
     entry = db.query(JournalEntry).filter(JournalEntry.trade_id == trade_id).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Journal entry not found")

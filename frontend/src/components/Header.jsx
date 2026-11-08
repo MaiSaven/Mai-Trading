@@ -10,7 +10,9 @@ import {
   ShieldCheck,
   Zap,
   Users,
-  ChevronDown
+  ChevronDown,
+  LogOut,
+  Link2
 } from 'lucide-react';
 
 export default function Header({ 
@@ -24,7 +26,10 @@ export default function Header({
   isRefreshing,
   accounts = [],
   activeAccountId,
-  onSwitchAccount
+  onSwitchAccount,
+  onLinkAccount,
+  user,
+  onLogout
 }) {
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const accountMenuRef = useRef(null);
@@ -113,7 +118,7 @@ export default function Header({
             )}
           </div>
 
-          {/* Account Switcher */}
+          {/* Account Switcher — shown when user has ≥1 account */}
           {accounts.length > 0 && (
             <div ref={accountMenuRef} style={{ position: 'relative', zIndex: 120 }}>
               <button
@@ -136,7 +141,7 @@ export default function Header({
                 <Users size={14} />
                 <span>
                   {activeAccount
-                    ? `${activeAccount.broker.split(' ')[0]} #${activeAccount.account_id}`
+                    ? `${activeAccount.broker.split(' ')[0]} #${activeAccount.login || activeAccount.account_id}`
                     : 'Select Account'
                   }
                 </span>
@@ -182,7 +187,7 @@ export default function Header({
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontWeight: 700, fontSize: '0.85rem', color: activeAccountId === acct.account_id ? '#818CF8' : '#E2E8F0' }}>
-                          #{acct.account_id}
+                          #{acct.login || acct.account_id}
                         </span>
                         <span style={{ fontSize: '0.78rem', fontWeight: 700, color: acct.balance >= 0 ? '#34D399' : '#F87171' }}>
                           ${acct.balance?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -191,9 +196,59 @@ export default function Header({
                       <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{acct.broker}</span>
                     </button>
                   ))}
+
+                  {/* Link New Account */}
+                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: '6px', paddingTop: '6px' }}>
+                    <button
+                      onClick={() => { setShowAccountMenu(false); onLinkAccount && onLinkAccount(); }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        width: '100%',
+                        padding: '9px 12px',
+                        borderRadius: '8px',
+                        border: '1px dashed rgba(99, 102, 241, 0.4)',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        background: 'rgba(99, 102, 241, 0.06)',
+                        color: '#818CF8',
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <Link2 size={14} />
+                      <span>Link New Account</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
+          )}
+
+          {/* No accounts yet — show a prominent "Link Account" button for new users */}
+          {accounts.length === 0 && onLinkAccount && (
+            <button
+              onClick={onLinkAccount}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '7px',
+                padding: '6px 14px',
+                background: 'rgba(99, 102, 241, 0.12)',
+                border: '1px dashed rgba(99, 102, 241, 0.5)',
+                borderRadius: '9999px',
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                color: '#818CF8',
+                fontWeight: 600,
+                animation: 'pulse 2s infinite'
+              }}
+            >
+              <Link2 size={14} />
+              <span>Link MT5 Account</span>
+            </button>
           )}
         </div>
 
@@ -217,6 +272,88 @@ export default function Header({
             <RefreshCw size={15} className={isRefreshing ? "pulsing-indicator" : ""} />
             <span>{isRefreshing ? "Syncing..." : "Sync Now"}</span>
           </button>
+
+          {user && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              paddingLeft: '12px',
+              marginLeft: '4px',
+              borderLeft: '1px solid rgba(255, 255, 255, 0.1)'
+            }}>
+              {user.picture ? (
+                <img
+                  src={user.picture}
+                  alt={user.name || "User"}
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '50%',
+                    objectFit: 'cover',
+                    border: '1.5px solid rgba(99, 102, 241, 0.5)'
+                  }}
+                />
+              ) : (
+                <div style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  color: '#ffffff',
+                  boxShadow: '0 2px 8px rgba(79, 70, 229, 0.3)'
+                }}>
+                  {(user.name || user.email || 'U')[0].toUpperCase()}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+                <span style={{
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  color: 'var(--text-main)',
+                  maxWidth: '130px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}>
+                  {user.name || user.email.split('@')[0]}
+                </span>
+                <span style={{
+                  fontSize: '0.68rem',
+                  color: 'var(--text-dim)',
+                  maxWidth: '130px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}>
+                  {user.email}
+                </span>
+              </div>
+
+              <button
+                onClick={onLogout}
+                className="btn-secondary"
+                title="Sign Out"
+                style={{
+                  padding: '6px 9px',
+                  fontSize: '0.75rem',
+                  color: 'var(--text-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}
+              >
+                <LogOut size={14} />
+                <span>Exit</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

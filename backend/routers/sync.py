@@ -1,14 +1,30 @@
 import os
+import hashlib
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 import random
 from database import get_db
-from models import Account, Deal, Trade, Position, JournalEntry
+from models import Account, Deal, Trade, Position, JournalEntry, User, Broker
 from schemas import SyncPayload
 from trade_matching import process_deal_matching
+from routers.auth import get_current_user
+import jwt
+from config import ENABLE_DEMO_DATA, API_KEY, JWT_SECRET, JWT_ALGORITHM
 
-from config import ENABLE_DEMO_DATA, API_KEY
+def get_synthetic_account_id(broker: str, login: int, server: str = "") -> int:
+    """
+    Deterministically generates a 63-bit positive BigInteger ID from (broker, login, server).
+    Ensures that if two different brokers have the same login, they will never collide.
+    """
+    clean_broker = (broker or "").strip().lower()
+    clean_server = (server or "").strip().lower()
+    if not clean_broker or clean_broker in ("metatrader 5 broker", "unknown broker", "metaquotes-demo (simulated)"):
+        return login
+
+    key = f"{clean_broker}:{clean_server}:{login}" if clean_server else f"{clean_broker}:{login}"
+    digest = hashlib.sha256(key.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], byteorder="big") & 0x7FFFFFFFFFFFFFFF
 
 # ---------------------------------------------------------------------------
 # Broker timezone correction
@@ -34,19 +50,84 @@ router = APIRouter(prefix="/api/v1", tags=["Sync"])
 def sync_data(
     payload: SyncPayload,
     db: Session = Depends(get_db),
-    x_api_key: str = Header(None)
+    x_api_key: str = Header(None),
+    authorization: str = Header(None),
+    x_user_email: str = Header(None)
 ):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized API key")
 
-    # 1. Update Account Record
-    acc_data = payload.account
-    account = db.query(Account).filter(Account.account_id == acc_data.account_id).first()
-    if not account:
-        account = Account(account_id=acc_data.account_id)
-        db.add(account)
+    # Determine user identity if provided in sync request
+    sync_user_id = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+        try:
+            tok_payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            sync_user_id = int(tok_payload.get("sub"))
+        except Exception:
+            pass
+    elif x_user_email:
+        u = db.query(User).filter(User.email == x_user_email.strip()).first()
+        if u:
+            sync_user_id = u.id
 
-    account.broker = acc_data.broker
+    # 1. Update Account Record (Collision-Resistant for Multiple Brokers)
+    acc_data = payload.account
+    raw_login = acc_data.login or acc_data.account_id
+    raw_broker = acc_data.broker or "Unknown Broker"
+    raw_server = acc_data.server or ""
+
+    # Auto-record broker & server in brokers table
+    if raw_broker and raw_broker != "Unknown Broker":
+        existing_broker = db.query(Broker).filter(
+            Broker.name == raw_broker,
+            Broker.server == raw_server
+        ).first()
+        if not existing_broker:
+            db.add(Broker(name=raw_broker, server=raw_server))
+            db.commit()
+
+    synthetic_id = get_synthetic_account_id(raw_broker, raw_login, raw_server)
+
+    # Check A: Existing account by (account_id == raw_login AND matching broker)
+    account = db.query(Account).filter(
+        Account.account_id == raw_login,
+        Account.broker == raw_broker
+    ).first()
+
+    # Check B: Existing account by synthetic_id
+    if not account:
+        account = db.query(Account).filter(Account.account_id == synthetic_id).first()
+
+    # Check C: Check if raw_login is occupied by another broker (collision)
+    if not account:
+        collision = db.query(Account).filter(Account.account_id == raw_login).first()
+        if collision and collision.broker != raw_broker:
+            # Collision! Another broker already uses raw_login. Use synthetic_id.
+            target_account_id = synthetic_id
+        else:
+            # No collision, or matches raw_login
+            target_account_id = raw_login
+
+        account = Account(
+            account_id=target_account_id,
+            login=raw_login,
+            server=raw_server,
+            broker=raw_broker,
+            user_id=sync_user_id
+        )
+        db.add(account)
+    else:
+        target_account_id = account.account_id
+        if not account.login:
+            account.login = raw_login
+        if not account.server:
+            account.server = raw_server
+        # If account had no owner, assign to sync user
+        if not account.user_id and sync_user_id:
+            account.user_id = sync_user_id
+
+    account.broker = raw_broker
     account.currency = acc_data.currency
     account.balance = acc_data.balance
     account.equity = acc_data.equity
@@ -56,7 +137,7 @@ def sync_data(
     account.profit = acc_data.profit
     account.updated_at = datetime.utcnow()
 
-    current_account_id = acc_data.account_id
+    current_account_id = target_account_id
 
     # 2. Update Open Positions (replace snapshot with active tickets)
     active_tickets = [p.ticket for p in payload.positions]
@@ -133,11 +214,27 @@ def sync_data(
     }
 
 @router.get("/sync/status")
-def get_sync_status(db: Session = Depends(get_db)):
-    account = db.query(Account).first()
-    deals_count = db.query(Deal).count()
-    trades_count = db.query(Trade).count()
-    positions_count = db.query(Position).count()
+def get_sync_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Returns sync status scoped to the authenticated user's own accounts only."""
+    # Only show accounts owned by the current user
+    user_accounts = db.query(Account).filter(Account.user_id == current_user.id).all()
+    user_account_ids = [a.account_id for a in user_accounts]
+
+    # Pick the most-recently updated account for the top-level status
+    account = (
+        db.query(Account)
+        .filter(Account.user_id == current_user.id)
+        .order_by(Account.updated_at.desc())
+        .first()
+    )
+
+    # Counts scoped to this user's account IDs only
+    deals_count = db.query(Deal).filter(Deal.account_id.in_(user_account_ids)).count()
+    trades_count = db.query(Trade).filter(Trade.account_id.in_(user_account_ids)).count()
+    positions_count = db.query(Position).filter(Position.account_id.in_(user_account_ids)).count()
 
     return {
         "connected": account is not None,
@@ -157,7 +254,10 @@ def get_sync_status(db: Session = Depends(get_db)):
     }
 
 @router.post("/sync/seed-demo")
-def seed_demo_data(db: Session = Depends(get_db)):
+def seed_demo_data(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """Seeds realistic trading data for instant dashboard demonstration.
 
     This endpoint is **disabled by default**.  To enable it, set
@@ -169,11 +269,12 @@ def seed_demo_data(db: Session = Depends(get_db)):
             status_code=403,
             detail="Demo data seeding is disabled.  Set ENABLE_DEMO_DATA=true in .env to enable it."
         )
-    # 1. Seed Account
-    account = db.query(Account).first()
+    # 1. Seed Account (linked to the current user)
+    account = db.query(Account).filter(Account.user_id == current_user.id).first()
     if not account:
         account = Account(
             account_id=5892104,
+            user_id=current_user.id,
             broker="MetaQuotes-Demo (Simulated)",
             currency="USD",
             balance=102450.00,

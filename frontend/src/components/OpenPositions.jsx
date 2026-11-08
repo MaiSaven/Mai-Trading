@@ -1,22 +1,64 @@
-import React from 'react';
-import { Radio, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Radio } from 'lucide-react';
 
-export default function OpenPositions({ positions }) {
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+const POLL_INTERVAL_MS = 10000; // 10 seconds — only this endpoint polls
+
+export default function OpenPositions({ accountId, token }) {
+  const [positions, setPositions] = useState([]);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const accountIdRef = useRef(accountId);
+
+  // Keep ref in sync so the interval always uses the latest accountId
+  useEffect(() => {
+    accountIdRef.current = accountId;
+  }, [accountId]);
+
+  const fetchPositions = async (id = accountIdRef.current) => {
+    try {
+      const param = id ? `?account_id=${id}` : '';
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await fetch(`${API_BASE}/positions${param}`, { headers });
+      if (res.ok) {
+        setPositions(await res.json());
+        setLastUpdated(new Date());
+      }
+    } catch {
+      // silent — network hiccup, retry next interval
+    }
+  };
+
+  useEffect(() => {
+    if (!token) return;
+    // Fetch immediately when account changes, then poll every 10s
+    fetchPositions(accountId);
+    const interval = setInterval(() => fetchPositions(), POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [accountId, token]);
+
+  const totalFloating = positions.reduce((acc, p) => acc + (p.profit || 0), 0);
+  const updatedStr = lastUpdated
+    ? lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    : null;
+
   if (!positions || positions.length === 0) {
     return (
       <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
           <Radio size={16} color="#60A5FA" />
           <h3 style={{ fontSize: '0.95rem', fontWeight: 600 }}>Active Open Positions (0)</h3>
+          {updatedStr && (
+            <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-dim)', fontFamily: 'monospace' }}>
+              updated {updatedStr}
+            </span>
+          )}
         </div>
         <p style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>
-          No active positions in MT5 right now. Any open orders placed in MetaTrader 5 will stream here in real time.
+          No active positions in MT5 right now. Any open orders placed in MetaTrader 5 will appear here automatically.
         </p>
       </div>
     );
   }
-
-  const totalFloating = positions.reduce((acc, p) => acc + (p.profit || 0), 0);
 
   return (
     <div className="glass-panel" style={{ padding: '20px', marginBottom: '24px' }}>
@@ -27,14 +69,21 @@ export default function OpenPositions({ positions }) {
             Active Open Positions ({positions.length})
           </h3>
         </div>
-        <div style={{ fontSize: '0.85rem' }}>
-          <span style={{ color: 'var(--text-muted)' }}>Floating PnL: </span>
-          <span className="font-mono" style={{ 
-            fontWeight: 700, 
-            color: totalFloating >= 0 ? '#34D399' : '#FB7185' 
-          }}>
-            {totalFloating >= 0 ? `+$${totalFloating.toFixed(2)}` : `-$${Math.abs(totalFloating).toFixed(2)}`}
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          {updatedStr && (
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontFamily: 'monospace' }}>
+              updated {updatedStr}
+            </span>
+          )}
+          <div style={{ fontSize: '0.85rem' }}>
+            <span style={{ color: 'var(--text-muted)' }}>Floating PnL: </span>
+            <span className="font-mono" style={{
+              fontWeight: 700,
+              color: totalFloating >= 0 ? '#34D399' : '#FB7185'
+            }}>
+              {totalFloating >= 0 ? `+$${totalFloating.toFixed(2)}` : `-$${Math.abs(totalFloating).toFixed(2)}`}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -72,9 +121,9 @@ export default function OpenPositions({ positions }) {
                   <td className="font-mono" style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
                     {pos.sl > 0 ? pos.sl : '-'} / {pos.tp > 0 ? pos.tp : '-'}
                   </td>
-                  <td className="font-mono" style={{ 
-                    fontWeight: 700, 
-                    color: isWin ? '#34D399' : '#FB7185' 
+                  <td className="font-mono" style={{
+                    fontWeight: 700,
+                    color: isWin ? '#34D399' : '#FB7185'
                   }}>
                     {isWin ? `+$${pos.profit.toFixed(2)}` : `-$${Math.abs(pos.profit).toFixed(2)}`}
                   </td>
