@@ -1,8 +1,0 @@
-{
-  "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "https://mai-trading.vercel.app/api/$1"
-    }
-  ]
-}
