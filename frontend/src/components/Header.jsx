@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Activity, 
-  RefreshCw, 
-  PlusCircle, 
-  BarChart3, 
+import {
+  Activity,
+  RefreshCw,
+  PlusCircle,
+  BarChart3,
   Calendar as CalendarIcon,
-  ListOrdered, 
-  BookOpen, 
+  ListOrdered,
+  BookOpen,
   ShieldCheck,
   Zap,
   Users,
@@ -15,13 +15,13 @@ import {
   Link2
 } from 'lucide-react';
 
-export default function Header({ 
-  syncStatus, 
-  summary, 
-  activeTab, 
-  setActiveTab, 
-  onRefresh, 
-  onSeedDemo, 
+export default function Header({
+  syncStatus,
+  summary,
+  activeTab,
+  setActiveTab,
+  onRefresh,
+  onSeedDemo,
   onOpenManualModal,
   isRefreshing,
   accounts = [],
@@ -69,7 +69,7 @@ export default function Header({
   return (
     <header className="glass-panel header-container">
       <div className="header-top-row">
-        
+
         {/* Brand & Connection Badge */}
         <div className="header-left-cluster">
           <div style={{
@@ -254,8 +254,8 @@ export default function Header({
 
         {/* Quick Action Buttons */}
         <div className="header-actions">
-          <button 
-            onClick={onOpenManualModal} 
+          <button
+            onClick={onOpenManualModal}
             className="btn-secondary"
             title="Manually record a trade execution"
           >
@@ -263,8 +263,8 @@ export default function Header({
             <span>Manual Trade</span>
           </button>
 
-          <button 
-            onClick={onRefresh} 
+          <button
+            onClick={onRefresh}
             className="btn-primary"
             disabled={isRefreshing}
             style={{ opacity: isRefreshing ? 0.7 : 1 }}
