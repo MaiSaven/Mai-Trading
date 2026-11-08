@@ -10,7 +10,6 @@ This guide contains everything you need to deploy, configure, and maintain the M
 |---|---|
 | **Production Web Dashboard** | [https://mai-trading.vercel.app](https://mai-trading.vercel.app) |
 | **API Health Check** | [https://mai-trading.vercel.app/api/health](https://mai-trading.vercel.app/api/health) |
-| **API Auth Config Check** | [https://mai-trading.vercel.app/api/v1/auth/config](https://mai-trading.vercel.app/api/v1/auth/config) |
 | **Swagger API Docs** | [https://mai-trading.vercel.app/api/v1/docs](https://mai-trading.vercel.app/api/v1/docs) |
 
 ---

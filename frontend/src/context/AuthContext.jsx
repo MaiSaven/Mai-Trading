@@ -13,25 +13,13 @@ export function AuthProvider({ children }) {
   const [googleClientId, setGoogleClientId] = useState(ENV_CLIENT_ID);
   const [isConfigured, setIsConfigured] = useState(Boolean(ENV_CLIENT_ID && !ENV_CLIENT_ID.startsWith("your-")));
 
-  // On mount, fetch public auth config and restore session if token exists
+  // On mount, restore session if token exists
   useEffect(() => {
     let isMounted = true;
 
     async function initAuth() {
       try {
-        // 1. Fetch backend auth config to discover configured Client ID if available
-        const configRes = await fetch(`${API_BASE}/auth/config`).catch(() => null);
-        if (configRes && configRes.ok) {
-          const configData = await configRes.json();
-          if (configData.google_client_id && !googleClientId) {
-            setGoogleClientId(configData.google_client_id);
-          }
-          if (configData.is_configured) {
-            setIsConfigured(true);
-          }
-        }
-
-        // 2. Validate existing token with /auth/me
+        // Validate existing token with /auth/me
         const savedToken = localStorage.getItem('mai_auth_token');
         if (savedToken) {
           const meRes = await fetch(`${API_BASE}/auth/me`, {

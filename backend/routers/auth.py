@@ -88,15 +88,6 @@ def verify_account_access(db: Session, user: User, account_id: Optional[int] = N
     return user_account_ids
 
 
-@router.get("/config")
-def get_auth_config():
-    """Returns the public auth configuration for the frontend."""
-    return {
-        "google_client_id": GOOGLE_CLIENT_ID,
-        "is_configured": bool(GOOGLE_CLIENT_ID and not GOOGLE_CLIENT_ID.startswith("your-")),
-    }
-
-
 @router.post("/google", response_model=AuthResponse)
 def login_with_google(payload: GoogleLoginRequest, db: Session = Depends(get_db)):
     """Verifies a Google OAuth ID token, syncs user into PostgreSQL, and issues an app JWT."""
