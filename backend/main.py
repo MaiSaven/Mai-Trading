@@ -1,19 +1,22 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from database import engine, Base
+from sqlalchemy import text
+from database import engine, Base, ensure_schema_exists
 import models  # Ensure all SQLAlchemy models are registered
 from routers import sync, trades, journal, analytics, positions, accounts, auth
 
-from config import CORS_ORIGINS, HOST, PORT
-
-# Auto-create SQLite database tables
-Base.metadata.create_all(bind=engine)
+from config import CORS_ORIGINS, HOST, PORT, DATABASE_URL
 
 app = FastAPI(
     title="MAI Trading Journal API",
     description="Automated MT5 Trading Journal, Analytics Engine & Reflection System",
     version="2.0.0"
 )
+
+@app.on_event("startup")
+def on_startup():
+    # Safely verify schema without blocking serverless function cold starts
+    ensure_schema_exists()
 
 # Enable CORS for configured frontend origins
 app.add_middleware(
@@ -46,6 +49,23 @@ def root():
             "analytics": "/api/v1/analytics/summary",
             "journal": "/api/v1/journal"
         }
+    }
+
+@app.get("/api/health")
+@app.get("/api/v1/health")
+def health():
+    db_status = "unknown"
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+            db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+
+    return {
+        "status": "ok",
+        "database": db_status,
+        "database_target": DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else "local/unset"
     }
 
 

@@ -3,35 +3,36 @@ from sqlalchemy import create_engine, MetaData, text, event
 from sqlalchemy.orm import sessionmaker, declarative_base
 from config import DATABASE_URL, DB_SCHEMA as SCHEMA_NAME
 
-# Neon pooler connections reject the search_path startup parameter.
-# Detect pooler URL and skip connect_args; set search_path via event instead.
+from sqlalchemy.pool import NullPool
+
+# Detect Vercel serverless environment
+_is_vercel = os.getenv("VERCEL") == "1" or "VERCEL_ENV" in os.environ
 _is_neon_pooler = "-pooler." in DATABASE_URL
-_is_external_db = "neon.tech" in DATABASE_URL or "amazonaws.com" in DATABASE_URL or "supabase" in DATABASE_URL
+_is_external_db = any(h in DATABASE_URL for h in ["neon.tech", "amazonaws.com", "supabase"])
 
 _connect_args = {} if _is_neon_pooler else {
     "options": f"-csearch_path={SCHEMA_NAME},public",
-    # Faster TCP keepalive for external DBs to detect stale connections quickly
     **({"keepalives": 1, "keepalives_idle": 30, "keepalives_interval": 5, "keepalives_count": 3}
        if _is_external_db else {})
 }
 
-# Pool tuning:
-# - External DB (Neon): smaller pool, longer recycle to avoid connection churn
-# - Local DB: larger pool, faster recycle
-_pool_size    = 3  if _is_external_db else 10
-_max_overflow = 5  if _is_external_db else 20
-_pool_recycle = 300  # recycle connections every 5 min (avoids stale conn errors)
-_pool_timeout = 10   # wait up to 10s for a connection from pool
-
-engine = create_engine(
-    DATABASE_URL,
-    connect_args=_connect_args,
-    pool_pre_ping=True,       # test connection before use (catches stale conns)
-    pool_size=_pool_size,
-    max_overflow=_max_overflow,
-    pool_recycle=_pool_recycle,
-    pool_timeout=_pool_timeout,
-)
+# In Vercel serverless, NullPool prevents stale cached connections and connection exhaustion
+if _is_vercel:
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args=_connect_args,
+        poolclass=NullPool,
+    )
+else:
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args=_connect_args,
+        pool_pre_ping=True,
+        pool_size=3 if _is_external_db else 10,
+        max_overflow=5 if _is_external_db else 20,
+        pool_recycle=300,
+        pool_timeout=10,
+    )
 
 # For Neon pooler: set search_path after each new connection is established
 if _is_neon_pooler:
@@ -41,10 +42,14 @@ if _is_neon_pooler:
         cursor.execute(f"SET search_path TO {SCHEMA_NAME}, public")
         cursor.close()
 
-# Ensure schema exists on engine startup
-with engine.connect() as conn:
-    conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA_NAME};"))
-    conn.commit()
+def ensure_schema_exists():
+    """Lazily ensure schema exists without crashing serverless cold starts."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {SCHEMA_NAME};"))
+            conn.commit()
+    except Exception as e:
+        print(f"[WARN] Database schema check skipped or deferred: {e}")
 
 metadata = MetaData(schema=SCHEMA_NAME)
 Base = declarative_base(metadata=metadata)

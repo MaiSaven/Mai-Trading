@@ -36,10 +36,26 @@ def get_cors_origins() -> list:
 CORS_ORIGINS: list = get_cors_origins()
 
 # Database Settings
-DATABASE_URL: str = os.getenv(
+_raw_db_url = os.getenv(
     "DATABASE_URL",
     "postgresql+psycopg2://postgres:9669@localhost:5432/mai-trading"
 )
+
+# Normalize URL for psycopg2 driver
+if _raw_db_url.startswith("postgres://"):
+    _normalized_db_url = _raw_db_url.replace("postgres://", "postgresql+psycopg2://", 1)
+elif _raw_db_url.startswith("postgresql://") and not _raw_db_url.startswith("postgresql+psycopg2://"):
+    _normalized_db_url = _raw_db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+else:
+    _normalized_db_url = _raw_db_url
+
+# Ensure SSL mode is enabled for remote cloud databases (Neon, Supabase, AWS RDS)
+if any(host in _normalized_db_url for host in ["neon.tech", "amazonaws.com", "supabase"]):
+    if "sslmode=" not in _normalized_db_url:
+        delim = "&" if "?" in _normalized_db_url else "?"
+        _normalized_db_url = f"{_normalized_db_url}{delim}sslmode=require"
+
+DATABASE_URL: str = _normalized_db_url
 DB_SCHEMA: str = os.getenv("DB_SCHEMA", "trading")
 
 # Security Settings
