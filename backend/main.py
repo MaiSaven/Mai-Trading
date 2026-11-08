@@ -64,8 +64,7 @@ def health():
 
     return {
         "status": "ok",
-        "database": db_status,
-        "database_target": DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else "local/unset"
+        "database": db_status
     }
 
 
