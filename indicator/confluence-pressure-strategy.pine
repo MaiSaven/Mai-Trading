@@ -12,96 +12,67 @@ strategy("Confluence Pressure Strategy", overlay=true, behind_chart=false,
 
 // ═══════════════════════════════ SETTINGS ═══════════════════════════════
 
-// ── Anchor (from Rolling Candle Profile) ──────────────────────────────────
 gA = "Anchor"
-anchType  = input.string("EMA", "Anchor type",
-     options=["EMA","SMA","VWMA","VWAP","Donchian Mid"], group=gA,
-     tooltip="Moving average used as the spine of the pressure corridor.")
+anchType  = input.string("EMA", "Anchor type", options=["EMA","SMA","VWMA","VWAP","Donchian Mid"], group=gA)
 anchorLen = input.int(21, "Anchor length", minval=5, maxval=200, group=gA)
 
-// ── Pressure Engine (from Rolling Candle Profile) ─────────────────────────
 gP = "Pressure Engine"
 pressMode = input.string("Hybrid", "Pressure mode",
      options=["Price Pressure","Volume Delta","Hybrid"], group=gP,
-     tooltip="Price Pressure: pure price action, no volume needed.\nVolume Delta: directional volume split.\nHybrid (recommended): combines both.")
-tfMode    = input.string("Manual", "Intrabar TF mode", options=["Auto","Manual"], group=gP, inline="ltf",
-     tooltip="Auto selects 1/5 of chart TF. Manual uses chosen TF. Use lower TF for more precise pressure.")
+     tooltip="Price Pressure: pure price action.\nVolume Delta: directional volume.\nHybrid: combines both.")
+tfMode    = input.string("Manual", "Intrabar TF mode", options=["Auto","Manual"], group=gP, inline="ltf")
 manTf     = input.timeframe("", "", group=gP, inline="ltf", active=tfMode=="Manual")
-pxWidth   = input.float(0.01, "Price-localization width",
-     minval=0.01, maxval=2.0, step=0.05, group=gP,
-     tooltip="Lower = sharper pressure pockets. Higher = smoother gradient.")
-wickW     = input.float(0.85, "Wick rejection influence",
-     minval=0.0, maxval=2.5, step=0.05, group=gP,
-     tooltip="How much wick rejections contribute to pressure. 0 = ignore wicks.")
+pxWidth   = input.float(0.01, "Price-localization width", minval=0.01, maxval=2.0, step=0.05, group=gP)
+wickW     = input.float(0.85, "Wick rejection influence", minval=0.0, maxval=2.5, step=0.05, group=gP)
 
-// ── Confluence Filter (from Confluence Profile) ───────────────────────────
 gC = "Confluence Filter"
 atrLen     = input.int(100, "ATR length (confluence tolerance)", minval=1, group=gC)
-tolAtr     = input.float(0.15, "Tolerance (ATR multiples)", minval=0.01, step=0.01, group=gC,
-     tooltip="How close price must be to a Fib/OB/FVG to count it. 0.15 = 15% of avg candle.")
-// Fib swings
-len1       = input.int(10, "Short swing pivot length",  minval=2, group=gC)
-len2       = input.int(30, "Medium swing pivot length", minval=2, group=gC)
-len3       = input.int(80, "Long swing pivot length",   minval=2, group=gC)
-// Active Fib levels
-useEnds    = input.bool(true,  "0% / 100% (swing highs/lows)", group=gC, inline="f1")
-showI2     = input.bool(true,  "0.382",  group=gC, inline="f2")
-showI3     = input.bool(true,  "0.500",  group=gC, inline="f2")
-showI4     = input.bool(true,  "0.618",  group=gC, inline="f2")
-showI5     = input.bool(false, "0.786",  group=gC, inline="f3")
+tolAtr     = input.float(0.15, "Tolerance (ATR multiples)", minval=0.01, step=0.01, group=gC)
+len1       = input.int(10, "Short swing pivot",  minval=2, group=gC)
+len2       = input.int(30, "Medium swing pivot", minval=2, group=gC)
+len3       = input.int(80, "Long swing pivot",   minval=2, group=gC)
+useEnds    = input.bool(true,  "0% / 100% (swing endpoints)", group=gC, inline="f1")
+showI2     = input.bool(true,  "0.382", group=gC, inline="f2")
+showI3     = input.bool(true,  "0.500", group=gC, inline="f2")
+showI4     = input.bool(true,  "0.618", group=gC, inline="f2")
+showI5     = input.bool(false, "0.786", group=gC, inline="f3")
 showE0     = input.bool(false, "1.272 extension", group=gC, inline="f3")
-// Order Blocks
 useOB      = input.bool(true, "Include Order Blocks", group=gC)
 pivotLenOB = input.int(12, "OB pivot length", minval=1, group=gC)
 useWicks   = input.bool(true, "OB include wicks", group=gC)
 obMinAtrI  = input.float(0.1, "OB min height (ATR)", minval=0.0, step=0.05, group=gC)
-// FVGs
 useFVG     = input.bool(true, "Include FVGs", group=gC)
 fvgMinAtrI = input.float(0.25, "FVG min height (ATR)", minval=0.0, step=0.05, group=gC)
-// Weights
 wFibI      = input.float(1.0, "Fib hit weight", minval=0.0, step=0.1, group=gC, inline="w1")
 wOBi       = input.float(1.0, "OB weight",      minval=0.0, step=0.1, group=gC, inline="w1")
-wFVGi      = input.float(1.0, "FVG weight",     minval=0.0, step=0.1, group=gC, inline="w1",
-     tooltip="Confluence score = sum of all factors hit near current price. Each weight = max contribution per component.")
+wFVGi      = input.float(1.0, "FVG weight",     minval=0.0, step=0.1, group=gC, inline="w1")
 
-// ── Entry Conditions ──────────────────────────────────────────────────────
 gE = "Entry Conditions"
 minConf    = input.float(2.0, "Min confluence score", minval=0.5, step=0.5, group=gE,
-     tooltip="Minimum combined score from Fib + OB + FVG proximity.\n2.0 = at least 2 factors overlapping (recommended).\nRaise for fewer but higher-quality signals.")
-sigDom     = input.float(0.25, "Min pressure dominance", minval=0.05, maxval=0.95, step=0.05, group=gE,
-     tooltip="Minimum net directional pressure bias. 0.25 = 25% buy/sell dominance over the other.")
-minBands   = input.int(7, "Min colored bands (of 12)", minval=1, maxval=12, group=gE,
-     tooltip="At least this many of 12 gradient bands must be colored before a signal fires.")
-sigGap     = input.int(6, "Min bar gap between signals", minval=1, maxval=40, group=gE,
-     tooltip="Prevents repeated signals in the same direction. Opposite-direction signals bypass this.")
+     tooltip="Minimum combined score from Fib + OB + FVG proximity. 2.0 = at least 2 factors overlapping.")
+sigDom     = input.float(0.25, "Min pressure dominance", minval=0.05, maxval=0.95, step=0.05, group=gE)
+minBands   = input.int(7, "Min colored bands (of 12)", minval=1, maxval=12, group=gE)
+sigGap     = input.int(6, "Min bar gap between signals", minval=1, maxval=40, group=gE)
 
-// ── Risk Management ───────────────────────────────────────────────────────
 gR = "Risk Management"
-slMode     = input.string("Zone-based", "Stop loss mode",
-     options=["Zone-based","ATR-based"], group=gR,
-     tooltip="Zone-based: SL placed just beyond the nearest OB/FVG bottom/top.\nATR-based: SL = entry ± (ATR multiple × ATR).")
-slAtr      = input.float(1.5, "SL ATR multiple", minval=0.5, step=0.25, group=gR,
-     tooltip="Used for ATR-based SL mode (or as fallback if no zone is found).")
-tpMode     = input.string("R-multiple", "Take profit mode",
-     options=["R-multiple","Fib extension"], group=gR,
-     tooltip="R-multiple: TP = entry + risk × R.\nFib extension: TP at the 1.272 extension of the longest active swing.")
+slMode     = input.string("Zone-based", "Stop loss mode", options=["Zone-based","ATR-based"], group=gR)
+slAtr      = input.float(1.5, "SL ATR multiple (fallback)", minval=0.5, step=0.25, group=gR)
+tpMode     = input.string("R-multiple", "Take profit mode", options=["R-multiple","Fib extension"], group=gR)
 tpR        = input.float(2.0, "R:R ratio", minval=0.5, step=0.25, group=gR)
 tpFibExt   = input.float(1.272, "Fib extension level", minval=1.0, step=0.001, group=gR)
-trailStop  = input.bool(false, "Exit on anchor cross (trailing)", group=gR,
-     tooltip="Close longs when price crosses below anchor; close shorts when price crosses above anchor.")
+trailStop  = input.bool(false, "Exit on anchor cross (trailing)", group=gR)
 
-// ── Appearance ────────────────────────────────────────────────────────────
 gG = "Appearance"
 brightness  = input.float(3.0, "Heatmap brightness", minval=0.5, maxval=3.0, step=0.1, group=gG)
 buyCol      = input.color(#00EFB4, "Buying pressure color",  group=gG, inline="col")
 sellCol     = input.color(#FF3D6E, "Selling pressure color", group=gG, inline="col")
-anchOn      = input.bool(true, "Show anchor line", group=gG)
-showZones   = input.bool(false, "Show OB / FVG boxes on chart", group=gG)
-showScore   = input.bool(true,  "Show live confluence score label", group=gG)
-txtCol_s    = input.color(color.white, "Signal label text color", group=gG)
+anchOn      = input.bool(true,  "Show anchor line",               group=gG)
+showZones   = input.bool(false, "Show OB / FVG boxes on chart",   group=gG)
+showScore   = input.bool(true,  "Show live confluence score",      group=gG)
+txtCol_s    = input.color(color.white, "Signal text color",   group=gG)
 buyLabCol   = input.color(#22c55e, "BUY label color",  group=gG, inline="labCol")
 sellLabCol  = input.color(#f23645, "SELL label color", group=gG, inline="labCol")
-labLookback = input.int(10, "Label extremes lookback",      minval=1, maxval=30, group=gG)
+labLookback = input.int(10,  "Label extremes lookback", minval=1, maxval=30, group=gG)
 labMaxGap   = input.float(1.0, "Max label distance (ATR)", minval=0.15, maxval=3.0, step=0.05, group=gG)
 
 // ═══════════════════════════════ HELPERS ═══════════════════════════════
@@ -115,9 +86,9 @@ kernel(float here, float center, float invW) =>
 mixCol(color a, color b, float amount) =>
     t = clamp(amount, 0.0, 1.0)
     color.rgb(
-         int(math.round(color.r(a)*(1-t)+color.r(b)*t)),
-         int(math.round(color.g(a)*(1-t)+color.g(b)*t)),
-         int(math.round(color.b(a)*(1-t)+color.b(b)*t)))
+         int(math.round(color.r(a)*(1-t) + color.r(b)*t)),
+         int(math.round(color.g(a)*(1-t) + color.g(b)*t)),
+         int(math.round(color.b(a)*(1-t) + color.b(b)*t)))
 
 stars(float score) =>
     score >= 4 ? "✦✦✦✦" : score >= 3 ? "✦✦✦" : score >= 2 ? "✦✦" : "✦"
@@ -142,11 +113,19 @@ autoTf   = timeframe.from_seconds(propSec)
 ltf      = tfMode == "Auto" ? autoTf : manTf
 ltfSec   = timeframe.in_seconds(ltf)
 useLtf   = ltfSec < chartSec
-reqBars  = int(math.min(100000.0, math.ceil((2500.0+250.0)*chartSec/math.max(ltfSec,1.0))))
+reqBars  = int(math.min(100000.0, math.ceil((2500.0 + 250.0) * chartSec / math.max(ltfSec, 1.0))))
 
-buyNow     = 0.0;  sellNow    = 0.0;  buyPxSum  = 0.0;  sellPxSum = 0.0
-lowRej     = 0.0;  highRej    = 0.0;  lowPxSum  = 0.0;  highPxSum = 0.0
-stallNow   = 0.0;  stallPxSum = 0.0;  totalNow  = 0.0
+buyNow     = 0.0
+sellNow    = 0.0
+buyPxSum   = 0.0
+sellPxSum  = 0.0
+lowRej     = 0.0
+highRej    = 0.0
+lowPxSum   = 0.0
+highPxSum  = 0.0
+stallNow   = 0.0
+stallPxSum = 0.0
+totalNow   = 0.0
 isPrice    = pressMode == "Price Pressure"
 isHybrid   = pressMode == "Hybrid"
 hasMicro   = false
@@ -160,79 +139,88 @@ if useLtf
         hasMicro  := true
         prevResp   = 0.0
         for i = nMicro - microLimit to nMicro - 1
-            o    = io.get(i);  h = ih.get(i);  l = il.get(i);  c = ic.get(i)
+            o    = io.get(i)
+            h    = ih.get(i)
+            l    = il.get(i)
+            c    = ic.get(i)
             rawV = nz(iv.get(i)) > 0.0 ? iv.get(i) : 1.0
             r    = math.max(h - l, syminfo.mintick)
-            prevC       = i > 0 ? ic.get(i-1) : nz(close[1], o)
-            directional = clamp((c-o)/r, -1.0, 1.0)
-            impulse     = math.abs(directional)
-            travel      = clamp((c-prevC)/r, -1.5, 1.5)
-            closeLoc    = clamp((2.0*c-h-l)/r, -1.0, 1.0)
-            response    = clamp(0.55*travel+0.25*directional+0.20*closeLoc, -1.5, 1.5)
-            force       = math.abs(response)
-            continuation= response*prevResp>0.0?1.45:response*prevResp<0.0?0.55:1.0
-            cp          = (h+l+c)/3.0
-            lowW_m      = math.max(0.0, math.min(o,c)-l)/r
-            hiW_m       = math.max(0.0, h-math.max(o,c))/r
-            v           = isHybrid ? rawV*(0.65+force*0.70) : rawV
-            flowDir     = isHybrid ? clamp(0.45*directional+0.55*response,-1.0,1.0) : directional
-            buyPart     = isPrice ? math.max(response,0.0)*(1.0+force*1.25)*continuation*2.0 : v*(1.0+flowDir)*0.5
-            sellPart    = isPrice ? math.max(-response,0.0)*(1.0+force*1.25)*continuation*2.0 : v*(1.0-flowDir)*0.5
-            rejBuy      = isPrice ? lowW_m*(0.35+1.20*math.max(response,0.0)) : v*lowW_m
-            rejSell     = isPrice ? hiW_m*(0.35+1.20*math.max(-response,0.0)) : v*hiW_m
-            stalled     = isPrice ? (1.0-clamp(force,0.0,1.0))*0.20 : v*(1.0-impulse)
-            bPx         = isPrice ? c*0.70+h*0.30 : isHybrid ? cp*0.75+h*0.25 : cp
-            sPx         = isPrice ? c*0.70+l*0.30 : isHybrid ? cp*0.75+l*0.25 : cp
-            buyNow     += buyPart;  sellNow    += sellPart
-            buyPxSum   += buyPart*bPx;  sellPxSum += sellPart*sPx
-            lowRej     += rejBuy;  highRej    += rejSell
-            lowPxSum   += rejBuy*(l+math.min(o,c))*0.5
-            highPxSum  += rejSell*(h+math.max(o,c))*0.5
-            stallNow   += stalled;  stallPxSum += stalled*cp
-            totalNow   += isPrice ? (buyPart+sellPart+rejBuy+rejSell+stalled) : v
-            prevResp   := response
+            prevC        = i > 0 ? ic.get(i - 1) : nz(close[1], o)
+            directional  = clamp((c - o) / r, -1.0, 1.0)
+            impulse      = math.abs(directional)
+            travel       = clamp((c - prevC) / r, -1.5, 1.5)
+            closeLoc     = clamp((2.0*c - h - l) / r, -1.0, 1.0)
+            response     = clamp(0.55*travel + 0.25*directional + 0.20*closeLoc, -1.5, 1.5)
+            force        = math.abs(response)
+            continuation = response * prevResp > 0.0 ? 1.45 : response * prevResp < 0.0 ? 0.55 : 1.0
+            cp           = (h + l + c) / 3.0
+            lowW_m       = math.max(0.0, math.min(o, c) - l) / r
+            hiW_m        = math.max(0.0, h - math.max(o, c)) / r
+            v            = isHybrid ? rawV * (0.65 + force * 0.70) : rawV
+            flowDir      = isHybrid ? clamp(0.45*directional + 0.55*response, -1.0, 1.0) : directional
+            buyPart      = isPrice ? math.max(response, 0.0) * (1.0 + force*1.25) * continuation * 2.0 : v*(1.0 + flowDir)*0.5
+            sellPart     = isPrice ? math.max(-response, 0.0) * (1.0 + force*1.25) * continuation * 2.0 : v*(1.0 - flowDir)*0.5
+            rejBuy       = isPrice ? lowW_m * (0.35 + 1.20 * math.max(response, 0.0)) : v * lowW_m
+            rejSell      = isPrice ? hiW_m  * (0.35 + 1.20 * math.max(-response, 0.0)) : v * hiW_m
+            stalled      = isPrice ? (1.0 - clamp(force, 0.0, 1.0)) * 0.20 : v * (1.0 - impulse)
+            bPx          = isPrice ? c*0.70 + h*0.30 : isHybrid ? cp*0.75 + h*0.25 : cp
+            sPx          = isPrice ? c*0.70 + l*0.30 : isHybrid ? cp*0.75 + l*0.25 : cp
+            buyNow       += buyPart
+            sellNow      += sellPart
+            buyPxSum     += buyPart * bPx
+            sellPxSum    += sellPart * sPx
+            lowRej       += rejBuy
+            highRej      += rejSell
+            lowPxSum     += rejBuy  * (l + math.min(o, c)) * 0.5
+            highPxSum    += rejSell * (h + math.max(o, c)) * 0.5
+            stallNow     += stalled
+            stallPxSum   += stalled * cp
+            totalNow     += isPrice ? (buyPart + sellPart + rejBuy + rejSell + stalled) : v
+            prevResp     := response
 
 if not hasMicro
-    r           = math.max(high-low, syminfo.mintick)
-    directional = clamp((close-open)/r, -1.0, 1.0)
-    impulse     = math.abs(directional)
-    travel      = clamp((close-nz(close[1],open))/r, -1.5, 1.5)
-    closeLoc    = clamp((2.0*close-high-low)/r, -1.0, 1.0)
-    response    = clamp(0.55*travel+0.25*directional+0.20*closeLoc, -1.5, 1.5)
-    force       = math.abs(response)
-    priorTravel = nz(close[1]-close[2])
-    continuation= priorTravel*response>0.0?1.45:priorTravel*response<0.0?0.55:1.0
-    rawV        = nz(volume) > 0.0 ? volume : 1.0
-    v           = isHybrid ? rawV*(0.65+force*0.70) : rawV
-    flowDir     = isHybrid ? clamp(0.45*directional+0.55*response,-1.0,1.0) : directional
-    lowW_s      = math.max(0.0, math.min(open,close)-low)/r
-    hiW_s       = math.max(0.0, high-math.max(open,close))/r
-    buyNow     := isPrice ? math.max(response,0.0)*(1.0+force*1.25)*continuation*2.0 : v*(1.0+flowDir)*0.5
-    sellNow    := isPrice ? math.max(-response,0.0)*(1.0+force*1.25)*continuation*2.0 : v*(1.0-flowDir)*0.5
-    lowRej     := isPrice ? lowW_s*(0.35+1.20*math.max(response,0.0)) : v*lowW_s
-    highRej    := isPrice ? hiW_s*(0.35+1.20*math.max(-response,0.0)) : v*hiW_s
-    stallNow   := isPrice ? (1.0-clamp(force,0.0,1.0))*0.20 : v*(1.0-impulse)
-    bPx         = isPrice ? close*0.70+high*0.30 : isHybrid ? hlc3*0.75+high*0.25 : hlc3
-    sPx         = isPrice ? close*0.70+low*0.30  : isHybrid ? hlc3*0.75+low*0.25  : hlc3
-    buyPxSum   := buyNow*bPx;   sellPxSum  := sellNow*sPx
-    lowPxSum   := lowRej*(low+math.min(open,close))*0.5
-    highPxSum  := highRej*(high+math.max(open,close))*0.5
-    stallPxSum := stallNow*hlc3
-    totalNow   := isPrice ? (buyNow+sellNow+lowRej+highRej+stallNow) : v
+    r            = math.max(high - low, syminfo.mintick)
+    directional  = clamp((close - open) / r, -1.0, 1.0)
+    impulse      = math.abs(directional)
+    travel       = clamp((close - nz(close[1], open)) / r, -1.5, 1.5)
+    closeLoc     = clamp((2.0*close - high - low) / r, -1.0, 1.0)
+    response     = clamp(0.55*travel + 0.25*directional + 0.20*closeLoc, -1.5, 1.5)
+    force        = math.abs(response)
+    priorTravel  = nz(close[1] - close[2])
+    continuation = priorTravel * response > 0.0 ? 1.45 : priorTravel * response < 0.0 ? 0.55 : 1.0
+    rawV         = nz(volume) > 0.0 ? volume : 1.0
+    v            = isHybrid ? rawV * (0.65 + force * 0.70) : rawV
+    flowDir      = isHybrid ? clamp(0.45*directional + 0.55*response, -1.0, 1.0) : directional
+    lowW_s       = math.max(0.0, math.min(open, close) - low)  / r
+    hiW_s        = math.max(0.0, high - math.max(open, close)) / r
+    buyNow      := isPrice ? math.max(response, 0.0)  * (1.0 + force*1.25) * continuation * 2.0 : v*(1.0 + flowDir)*0.5
+    sellNow     := isPrice ? math.max(-response, 0.0) * (1.0 + force*1.25) * continuation * 2.0 : v*(1.0 - flowDir)*0.5
+    lowRej      := isPrice ? lowW_s * (0.35 + 1.20 * math.max(response,  0.0)) : v * lowW_s
+    highRej     := isPrice ? hiW_s  * (0.35 + 1.20 * math.max(-response, 0.0)) : v * hiW_s
+    stallNow    := isPrice ? (1.0 - clamp(force, 0.0, 1.0)) * 0.20 : v * (1.0 - impulse)
+    bPx          = isPrice ? close*0.70 + high*0.30 : isHybrid ? hlc3*0.75 + high*0.25 : hlc3
+    sPx          = isPrice ? close*0.70 + low*0.30  : isHybrid ? hlc3*0.75 + low*0.25  : hlc3
+    buyPxSum    := buyNow   * bPx
+    sellPxSum   := sellNow  * sPx
+    lowPxSum    := lowRej   * (low  + math.min(open, close)) * 0.5
+    highPxSum   := highRej  * (high + math.max(open, close)) * 0.5
+    stallPxSum  := stallNow * hlc3
+    totalNow    := isPrice ? (buyNow + sellNow + lowRej + highRej + stallNow) : v
 
-// Pressure centers (weighted average price of each pressure component)
-buyCtr   = buyNow  > 0.0 ? buyPxSum  / buyNow  : hlc3
-sellCtr  = sellNow > 0.0 ? sellPxSum / sellNow  : hlc3
-lowCtr   = lowRej  > 0.0 ? lowPxSum  / lowRej   : low
-highCtr  = highRej > 0.0 ? highPxSum / highRej  : high
-stallCtr = stallNow> 0.0 ? stallPxSum/ stallNow  : hlc3
-baseline = ta.ema(totalNow, 55)
-flowScale= totalNow>0.0 ? math.min(1.0, math.max(nz(baseline,totalNow),0.000001)*20.0/totalNow) : 1.0
-buyNow  *= flowScale;  sellNow *= flowScale
-lowRej  *= flowScale;  highRej *= flowScale;  stallNow *= flowScale
+buyCtr   = buyNow   > 0.0 ? buyPxSum   / buyNow   : hlc3
+sellCtr  = sellNow  > 0.0 ? sellPxSum  / sellNow   : hlc3
+lowCtr   = lowRej   > 0.0 ? lowPxSum   / lowRej    : low
+highCtr  = highRej  > 0.0 ? highPxSum  / highRej   : high
+stallCtr = stallNow > 0.0 ? stallPxSum / stallNow  : hlc3
+baseline  = ta.ema(totalNow, 55)
+flowScale = totalNow > 0.0 ? math.min(1.0, math.max(nz(baseline, totalNow), 0.000001) * 20.0 / totalNow) : 1.0
+buyNow   *= flowScale
+sellNow  *= flowScale
+lowRej   *= flowScale
+highRej  *= flowScale
+stallNow *= flowScale
 
 // ═══════════════════════════════ TRAILING FIB SWINGS ═══════════════════════════════
-// (from Confluence Profile – Uncle_the_shooter)
 
 atrV = ta.atr(atrLen)
 
@@ -250,57 +238,111 @@ f_extreme(int o1, int o2, bool hi) =>
     [p, i]
 
 trailFib(int len) =>
-    var float pA = na;  var int iA = na;  var bool hA = false
-    var float pB = na;  var int iB = na;  var bool hB = true
+    var float pA = na
+    var int   iA = na
+    var bool  hA = false
+    var float pB = na
+    var int   iB = na
+    var bool  hB = true
     if na(pB)
-        pA := low ; iA := bar_index ; hA := false
-        pB := high; iB := bar_index ; hB := true
+        pA := low
+        iA := bar_index
+        hA := false
+        pB := high
+        iB := bar_index
+        hB := true
     ph = ta.pivothigh(high, len, len)
     pl = ta.pivotlow( low,  len, len)
     int p = bar_index - len
     if not na(ph) and barstate.isconfirmed
         if hB and iB < p
-            [lp,li] = f_extreme(bar_index-p+1, bar_index-iB-1, false)
+            [lp, li] = f_extreme(bar_index - p + 1, bar_index - iB - 1, false)
             if not na(lp)
-                [hp,hi_] = f_extreme(0, bar_index-li-1, true)
-                pA:=lp; iA:=li; hA:=false; pB:=hp; iB:=hi_; hB:=true
-                [lp2,li2] = f_extreme(0, bar_index-iB-1, false)
+                [hp, hi_] = f_extreme(0, bar_index - li - 1, true)
+                pA := lp
+                iA := li
+                hA := false
+                pB := hp
+                iB := hi_
+                hB := true
+                [lp2, li2] = f_extreme(0, bar_index - iB - 1, false)
                 if not na(lp2) and lp2 < pA
-                    pA:=pB; iA:=iB; hA:=true; pB:=lp2; iB:=li2; hB:=false
+                    pA := pB
+                    iA := iB
+                    hA := true
+                    pB := lp2
+                    iB := li2
+                    hB := false
         else if not hB and p > iB
-            [hp,hi_] = f_extreme(0, bar_index-iB-1, true)
+            [hp, hi_] = f_extreme(0, bar_index - iB - 1, true)
             if not na(hp)
-                pA:=pB; iA:=iB; hA:=false; pB:=hp; iB:=hi_; hB:=true
+                pA := pB
+                iA := iB
+                hA := false
+                pB := hp
+                iB := hi_
+                hB := true
         else if not hB and p > iA
-            pA:=ph; iA:=p; hA:=true
+            pA := ph
+            iA := p
+            hA := true
     if not na(pl) and barstate.isconfirmed
         if not hB and iB < p
-            [hp,hi_] = f_extreme(bar_index-p+1, bar_index-iB-1, true)
+            [hp, hi_] = f_extreme(bar_index - p + 1, bar_index - iB - 1, true)
             if not na(hp)
-                [lp,li] = f_extreme(0, bar_index-hi_-1, false)
-                pA:=hp; iA:=hi_; hA:=true; pB:=lp; iB:=li; hB:=false
-                [hp2,hi2] = f_extreme(0, bar_index-iB-1, true)
+                [lp, li] = f_extreme(0, bar_index - hi_ - 1, false)
+                pA := hp
+                iA := hi_
+                hA := true
+                pB := lp
+                iB := li
+                hB := false
+                [hp2, hi2] = f_extreme(0, bar_index - iB - 1, true)
                 if not na(hp2) and hp2 > pA
-                    pA:=pB; iA:=iB; hA:=false; pB:=hp2; iB:=hi2; hB:=true
+                    pA := pB
+                    iA := iB
+                    hA := false
+                    pB := hp2
+                    iB := hi2
+                    hB := true
         else if hB and p > iB
-            [lp,li] = f_extreme(0, bar_index-iB-1, false)
+            [lp, li] = f_extreme(0, bar_index - iB - 1, false)
             if not na(lp)
-                pA:=pB; iA:=iB; hA:=true; pB:=lp; iB:=li; hB:=false
+                pA := pB
+                iA := iB
+                hA := true
+                pB := lp
+                iB := li
+                hB := false
         else if hB and p > iA
-            pA:=pl; iA:=p; hA:=false
+            pA := pl
+            iA := p
+            hA := false
     bool grn = close >= open
     for step = 0 to 1
         bool doLow = grn ? step == 0 : step == 1
         if doLow
             if not hB and low < pB
-                pB := low ; iB := bar_index
+                pB := low
+                iB := bar_index
             else if hB and low < pA
-                pA:=pB; iA:=iB; hA:=true; pB:=low; iB:=bar_index; hB:=false
+                pA := pB
+                iA := iB
+                hA := true
+                pB := low
+                iB := bar_index
+                hB := false
         else
             if hB and high > pB
-                pB := high; iB := bar_index
+                pB := high
+                iB := bar_index
             else if not hB and high > pA
-                pA:=pB; iA:=iB; hA:=false; pB:=high; iB:=bar_index; hB:=true
+                pA := pB
+                iA := iB
+                hA := false
+                pB := high
+                iB := bar_index
+                hB := true
     float tHigh = hB ? pB : pA
     float tLow  = hB ? pA : pB
     [tHigh, tLow, hB, iA]
@@ -314,25 +356,27 @@ trailFib(int len) =>
 float atrC = nz(atrV[1], atrV)
 float tol  = tolAtr * atrC
 
-// Build enabled Fib ratios once
 var array<float> ratios = array.new<float>()
 if barstate.isfirst
     if useEnds
         ratios.push(0.0)
         ratios.push(1.0)
-    if showI2  : ratios.push(0.382)
-    if showI3  : ratios.push(0.500)
-    if showI4  : ratios.push(0.618)
-    if showI5  : ratios.push(0.786)
-    if showE0  : ratios.push(1.272)
+    if showI2
+        ratios.push(0.382)
+    if showI3
+        ratios.push(0.500)
+    if showI4
+        ratios.push(0.618)
+    if showI5
+        ratios.push(0.786)
+    if showE0
+        ratios.push(1.272)
 
-// Check if `c0` is within `tol` of any active Fib level on any swing
-// Returns the total Fib contribution to the confluence score
 f_fibScore(float c0) =>
-    score  = 0.0
-    hs     = array.from(h1, h2, h3)
-    ls     = array.from(l1, l2, l3)
-    zs     = array.from(z1, z2, z3)
+    float score = 0.0
+    hs = array.from(h1, h2, h3)
+    ls = array.from(l1, l2, l3)
+    zs = array.from(z1, z2, z3)
     for k = 0 to 2
         float h = hs.get(k)
         float l = ls.get(k)
@@ -342,7 +386,7 @@ f_fibScore(float c0) =>
         bool hit = false
         if ratios.size() > 0
             for rt in ratios
-                float lvl = zs.get(k) ? h - d*rt : l + d*rt
+                float lvl = zs.get(k) ? h - d * rt : l + d * rt
                 if math.abs(lvl - c0) <= tol
                     hit := true
                     break
@@ -351,7 +395,6 @@ f_fibScore(float c0) =>
     score
 
 // ═══════════════════════════════ OB / FVG ZONES ═══════════════════════════════
-// (from Confluence Profile – tracking arrays update bar-by-bar)
 
 type Zone
     float top
@@ -380,11 +423,15 @@ f_createOB(bool isBull) =>
     int idx = pivotLenOB
     int src = idx
     if isBull and not isRed(idx)
-        for k = idx+1 to idx+obSrcLookback
-            if isRed(k) : src := k ; break
+        for k = idx + 1 to idx + obSrcLookback
+            if isRed(k)
+                src := k
+                break
     else if not isBull and not isGreen(idx)
-        for k = idx+1 to idx+obSrcLookback
-            if isGreen(k) : src := k ; break
+        for k = idx + 1 to idx + obSrcLookback
+            if isGreen(k)
+                src := k
+                break
     float t = useWicks ? high[src] : math.max(open[src], close[src])
     float b = useWicks ? low[src]  : math.min(open[src], close[src])
     if isBull
@@ -394,227 +441,274 @@ f_createOB(bool isBull) =>
     int srcUsed = src
     if (t - b) > atrV * obWickAtrMult
         if isBull
-            t := math.min(open[idx],close[idx]) ; b := low[idx]
+            t := math.min(open[idx], close[idx])
+            b := low[idx]
         else
-            t := high[idx] ; b := math.max(open[idx],close[idx])
+            t := high[idx]
+            b := math.max(open[idx], close[idx])
         srcUsed := idx
     if (t - b) >= atrV * obMinAtrI
         f_addZone(obZones, t, b, bar_index - srcUsed, isBull, false)
 
 f_trackZones(array<Zone> zs) =>
     if zs.size() > 0
-        for i = zs.size()-1 to 0
+        for i = zs.size() - 1 to 0
             Zone z = zs.get(i)
-            // Remove if price closes through the zone
-            if z.isBull and close < z.bot : zs.remove(i) ; continue
-            if not z.isBull and close > z.top : zs.remove(i) ; continue
-            // FVG: shrink as price fills it
+            if z.isBull and close < z.bot
+                zs.remove(i)
+                continue
+            if not z.isBull and close > z.top
+                zs.remove(i)
+                continue
             if z.isFvg
                 if z.isBull and low <= z.top
-                    if low <= z.bot : zs.remove(i) ; continue
+                    if low <= z.bot
+                        zs.remove(i)
+                        continue
                     z.top := math.min(z.top, low)
                 else if not z.isBull and high >= z.bot
-                    if high >= z.top : zs.remove(i) ; continue
+                    if high >= z.top
+                        zs.remove(i)
+                        continue
                     z.bot := math.max(z.bot, high)
 
 pivLow  = ta.pivotlow( low,  pivotLenOB, pivotLenOB)
 pivHigh = ta.pivothigh(high, pivotLenOB, pivotLenOB)
 
 if useOB and barstate.isconfirmed
-    if not na(pivLow)  : f_createOB(true)
-    if not na(pivHigh) : f_createOB(false)
+    if not na(pivLow)
+        f_createOB(true)
+    if not na(pivHigh)
+        f_createOB(false)
 
 if useFVG and barstate.isconfirmed
-    if low  > high[2] and (low  - high[2]) >= atrV * fvgMinAtrI
-        f_addZone(fvgZones, low, high[2], bar_index-2, true,  true)
-    if high < low[2]  and (low[2] - high)  >= atrV * fvgMinAtrI
-        f_addZone(fvgZones, low[2], high,  bar_index-2, false, true)
+    if low > high[2] and (low - high[2]) >= atrV * fvgMinAtrI
+        f_addZone(fvgZones, low, high[2], bar_index - 2, true, true)
+    if high < low[2] and (low[2] - high) >= atrV * fvgMinAtrI
+        f_addZone(fvgZones, low[2], high, bar_index - 2, false, true)
 
 if barstate.isconfirmed
     f_trackZones(obZones)
     f_trackZones(fvgZones)
 
-// Zone score and direction at price `c0`
 f_zoneInfo(float c0) =>
-    obScore = 0.0;  fvgScore = 0.0
-    bool obBull = false;  bool obBear = false
-    bool fvBull = false;  bool fvBear = false
-    float slBull = na;  float slBear = na   // best SL levels from zones
+    float obScore  = 0.0
+    float fvgScore = 0.0
+    bool  obBull   = false
+    bool  obBear   = false
+    bool  fvBull   = false
+    bool  fvBear   = false
+    float slBull   = na
+    float slBear   = na
     for z in obZones
-        if c0 >= z.bot-tol and c0 <= z.top+tol
-            if z.isBull : obBull := true ; slBull := na(slBull) ? z.bot : math.max(slBull, z.bot)
-            else        : obBear := true ; slBear := na(slBear) ? z.top : math.min(slBear, z.top)
+        if c0 >= z.bot - tol and c0 <= z.top + tol
+            if z.isBull
+                obBull := true
+                slBull := na(slBull) ? z.bot : math.max(slBull, z.bot)
+            else
+                obBear := true
+                slBear := na(slBear) ? z.top : math.min(slBear, z.top)
     for z in fvgZones
-        if c0 >= z.bot-tol and c0 <= z.top+tol
-            if z.isBull : fvBull := true ; slBull := na(slBull) ? z.bot : math.max(slBull, z.bot)
-            else        : fvBear := true ; slBear := na(slBear) ? z.top : math.min(slBear, z.top)
-    obScore  := (obBull or obBear) ? wOBi  : 0.0
-    fvgScore := (fvBull or fvBear) ? wFVGi : 0.0
+        if c0 >= z.bot - tol and c0 <= z.top + tol
+            if z.isBull
+                fvBull := true
+                slBull := na(slBull) ? z.bot : math.max(slBull, z.bot)
+            else
+                fvBear := true
+                slBear := na(slBear) ? z.top : math.min(slBear, z.top)
+    if obBull or obBear
+        obScore := wOBi
+    if fvBull or fvBear
+        fvgScore := wFVGi
     [obScore, fvgScore, obBull, obBear, fvBull, fvBear, slBull, slBear]
 
-// ═══════════════════════════════ 12-BAND CORRIDOR HEATMAP ═══════════════════════════════
+// ═══════════════════════════════ 12-BAND CORRIDOR ═══════════════════════════════
 
 const int BANDS = 12
 bodyLo    = math.min(open, close)
 bodyHi    = math.max(open, close)
 edge      = anchor < bodyLo ? bodyLo : anchor > bodyHi ? bodyHi : na
 atr14     = ta.atr(14)
-ready     = bar_index >= math.max(anchorLen+2, 62) and not na(edge) and not na(atr14)
-              and math.abs(edge-anchor) > 2*syminfo.mintick
+ready     = bar_index >= math.max(anchorLen + 2, 62) and not na(edge) and not na(atr14)
+              and math.abs(edge - anchor) > 2 * syminfo.mintick
 distance  = ready ? (edge - anchor) / BANDS : na
-ageDecay  = math.pow(0.5, 1.0/3)
+ageDecay  = math.pow(0.5, 1.0 / 3)
 
 var array<color> bandColors = array.new_color(BANDS, na)
 bandColors.fill(na)
-profBuy   = 0.0;  profSell = 0.0
-visBands  = 0;    buyBands = 0;  sellBands = 0
+
+profBuy   = 0.0
+profSell  = 0.0
+visBands  = 0
+buyBands  = 0
+sellBands = 0
 volBase   = math.max(0.000001, nz(baseline, totalNow))
-localRng  = math.max(nz(high-low, syminfo.mintick), syminfo.mintick)
+localRng  = math.max(nz(high - low, syminfo.mintick), syminfo.mintick)
 baseW     = localRng * pxWidth
 baseWickW = baseW * 0.6
 
 if ready
     minW     = math.abs(distance) * (isPrice ? 1.15 : 1.8)
     minWickW = math.abs(distance) * (isPrice ? 1.00 : 1.3)
-    for b = 0 to BANDS-1
+    for b = 0 to BANDS - 1
         here        = anchor + distance * (b + 0.5)
-        buyField    = 0.0;  sellField = 0.0;  stressField = 0.0
+        buyField    = 0.0
+        sellField   = 0.0
+        stressField = 0.0
         age         = 1.0
         for k = 0 to 59
             invW     = 1.0 / math.max(math.max(baseW[k],     minW),     syminfo.mintick)
             invWickW = 1.0 / math.max(math.max(baseWickW[k], minWickW), syminfo.mintick)
-            buyField    += nz(buyNow[k])  * kernel(here, nz(buyCtr[k],  hlc3[k]), invW)      * age
-            sellField   += nz(sellNow[k]) * kernel(here, nz(sellCtr[k], hlc3[k]), invW)      * age
+            buyField    += nz(buyNow[k])   * kernel(here, nz(buyCtr[k],   hlc3[k]), invW)      * age
+            sellField   += nz(sellNow[k])  * kernel(here, nz(sellCtr[k],  hlc3[k]), invW)      * age
             buyField    += wickW * nz(lowRej[k])  * kernel(here, nz(lowCtr[k],  low[k]),  invWickW) * age
             sellField   += wickW * nz(highRej[k]) * kernel(here, nz(highCtr[k], high[k]), invWickW) * age
-            stressField += nz(stallNow[k]) * kernel(here, nz(stallCtr[k], hlc3[k]), invW)    * age
+            stressField += nz(stallNow[k]) * kernel(here, nz(stallCtr[k], hlc3[k]), invW)      * age
             age *= ageDecay
         total     = buyField + sellField
-        imbalance = total > 0.0 ? clamp((buyField-sellField)/total*3.0, -1.0, 1.0) : 0.0
-        activity  = clamp(total/(volBase*(isPrice?0.80:2.0)), 0.0, 1.0)
+        imbalance = total > 0.0 ? clamp((buyField - sellField) / total * 3.0, -1.0, 1.0) : 0.0
+        activity  = clamp(total / (volBase * (isPrice ? 0.80 : 2.0)), 0.0, 1.0)
         tintMix   = isPrice
-             ? clamp(0.40+0.60*math.abs(imbalance), 0.0, 1.0)
-             : clamp((0.18+0.82*math.abs(imbalance))*(0.75+0.25*activity), 0.0, 1.0)
-        hue       = imbalance >  0.03 ? mixCol(#728096, buyCol,  tintMix)
-             : imbalance < -0.03 ? mixCol(#728096, sellCol, tintMix) : #728096
+             ? clamp(0.40 + 0.60 * math.abs(imbalance), 0.0, 1.0)
+             : clamp((0.18 + 0.82 * math.abs(imbalance)) * (0.75 + 0.25 * activity), 0.0, 1.0)
+        hue       = imbalance > 0.03
+             ? mixCol(#728096, buyCol,  tintMix)
+             : imbalance < -0.03
+             ? mixCol(#728096, sellCol, tintMix)
+             : #728096
         if activity < 0.08
-            hue := mixCol(#728096, hue, activity/0.08)
+            hue := mixCol(#728096, hue, activity / 0.08)
         color bandCol = na
         if isPrice
-            alpha   = int(math.round(clamp(69.0-brightness*12.0-35.0*activity-17.0*math.abs(imbalance), 3.0, 88.0)))
+            alpha   = int(math.round(clamp(69.0 - brightness*12.0 - 35.0*activity - 17.0*math.abs(imbalance), 3.0, 88.0)))
             bandCol := activity >= 0.08 and math.abs(imbalance) >= 0.14 ? color.new(hue, alpha) : na
         else
-            alpha   = int(math.round(clamp(60.0-brightness*21.0-22.0*activity-12.0*math.abs(imbalance), 4.0, 76.0)))
-            if activity < 0.08 : alpha := 76
+            alpha = int(math.round(clamp(60.0 - brightness*21.0 - 22.0*activity - 12.0*math.abs(imbalance), 4.0, 76.0)))
+            if activity < 0.08
+                alpha := 76
             bandCol := alpha < 8 ? color.new(hue, alpha) : na
         bandColors.set(b, bandCol)
         if not na(bandCol)
-            profBuy  += buyField;  profSell += sellField;  visBands += 1
-            if   imbalance >  0.03 : buyBands  += 1
-            else if imbalance < -0.03 : sellBands += 1
+            profBuy  += buyField
+            profSell += sellField
+            visBands += 1
+            if imbalance > 0.03
+                buyBands += 1
+            else if imbalance < -0.03
+                sellBands += 1
 
 // ═══════════════════════════════ RENDER HEATMAP ═══════════════════════════════
 
-p00=ready?anchor:na;             p01=ready?anchor+distance:na
-p02=ready?anchor+distance*2:na;  p03=ready?anchor+distance*3:na
-p04=ready?anchor+distance*4:na;  p05=ready?anchor+distance*5:na
-p06=ready?anchor+distance*6:na;  p07=ready?anchor+distance*7:na
-p08=ready?anchor+distance*8:na;  p09=ready?anchor+distance*9:na
-p10=ready?anchor+distance*10:na; p11=ready?anchor+distance*11:na
-p12=ready?edge:na
+p00 = ready ? anchor             : na
+p01 = ready ? anchor + distance  : na
+p02 = ready ? anchor + distance * 2 : na
+p03 = ready ? anchor + distance * 3 : na
+p04 = ready ? anchor + distance * 4 : na
+p05 = ready ? anchor + distance * 5 : na
+p06 = ready ? anchor + distance * 6 : na
+p07 = ready ? anchor + distance * 7 : na
+p08 = ready ? anchor + distance * 8 : na
+p09 = ready ? anchor + distance * 9 : na
+p10 = ready ? anchor + distance * 10 : na
+p11 = ready ? anchor + distance * 11 : na
+p12 = ready ? edge               : na
 
-plotcandle(p00,math.max(p00,p01),math.min(p00,p01),p01,"Band 01",color=bandColors.get(0), wickcolor=na,bordercolor=na)
-plotcandle(p01,math.max(p01,p02),math.min(p01,p02),p02,"Band 02",color=bandColors.get(1), wickcolor=na,bordercolor=na)
-plotcandle(p02,math.max(p02,p03),math.min(p02,p03),p03,"Band 03",color=bandColors.get(2), wickcolor=na,bordercolor=na)
-plotcandle(p03,math.max(p03,p04),math.min(p03,p04),p04,"Band 04",color=bandColors.get(3), wickcolor=na,bordercolor=na)
-plotcandle(p04,math.max(p04,p05),math.min(p04,p05),p05,"Band 05",color=bandColors.get(4), wickcolor=na,bordercolor=na)
-plotcandle(p05,math.max(p05,p06),math.min(p05,p06),p06,"Band 06",color=bandColors.get(5), wickcolor=na,bordercolor=na)
-plotcandle(p06,math.max(p06,p07),math.min(p06,p07),p07,"Band 07",color=bandColors.get(6), wickcolor=na,bordercolor=na)
-plotcandle(p07,math.max(p07,p08),math.min(p07,p08),p08,"Band 08",color=bandColors.get(7), wickcolor=na,bordercolor=na)
-plotcandle(p08,math.max(p08,p09),math.min(p08,p09),p09,"Band 09",color=bandColors.get(8), wickcolor=na,bordercolor=na)
-plotcandle(p09,math.max(p09,p10),math.min(p09,p10),p10,"Band 10",color=bandColors.get(9), wickcolor=na,bordercolor=na)
-plotcandle(p10,math.max(p10,p11),math.min(p10,p11),p11,"Band 11",color=bandColors.get(10),wickcolor=na,bordercolor=na)
-plotcandle(p11,math.max(p11,p12),math.min(p11,p12),p12,"Band 12",color=bandColors.get(11),wickcolor=na,bordercolor=na)
+plotcandle(p00, math.max(p00,p01), math.min(p00,p01), p01, "Band 01", color=bandColors.get(0),  wickcolor=na, bordercolor=na)
+plotcandle(p01, math.max(p01,p02), math.min(p01,p02), p02, "Band 02", color=bandColors.get(1),  wickcolor=na, bordercolor=na)
+plotcandle(p02, math.max(p02,p03), math.min(p02,p03), p03, "Band 03", color=bandColors.get(2),  wickcolor=na, bordercolor=na)
+plotcandle(p03, math.max(p03,p04), math.min(p03,p04), p04, "Band 04", color=bandColors.get(3),  wickcolor=na, bordercolor=na)
+plotcandle(p04, math.max(p04,p05), math.min(p04,p05), p05, "Band 05", color=bandColors.get(4),  wickcolor=na, bordercolor=na)
+plotcandle(p05, math.max(p05,p06), math.min(p05,p06), p06, "Band 06", color=bandColors.get(5),  wickcolor=na, bordercolor=na)
+plotcandle(p06, math.max(p06,p07), math.min(p06,p07), p07, "Band 07", color=bandColors.get(6),  wickcolor=na, bordercolor=na)
+plotcandle(p07, math.max(p07,p08), math.min(p07,p08), p08, "Band 08", color=bandColors.get(7),  wickcolor=na, bordercolor=na)
+plotcandle(p08, math.max(p08,p09), math.min(p08,p09), p09, "Band 09", color=bandColors.get(8),  wickcolor=na, bordercolor=na)
+plotcandle(p09, math.max(p09,p10), math.min(p09,p10), p10, "Band 10", color=bandColors.get(9),  wickcolor=na, bordercolor=na)
+plotcandle(p10, math.max(p10,p11), math.min(p10,p11), p11, "Band 11", color=bandColors.get(10), wickcolor=na, bordercolor=na)
+plotcandle(p11, math.max(p11,p12), math.min(p11,p12), p12, "Band 12", color=bandColors.get(11), wickcolor=na, bordercolor=na)
 
 anchorCol = anchor >= nz(anchor[1], anchor) ? buyCol : sellCol
-plot(anchOn ? anchor : na, "Anchor Glow", color=color.new(anchorCol,50), linewidth=6)
-plot(anchOn ? anchor : na, "Anchor",      color=anchorCol,              linewidth=2)
+plot(anchOn ? anchor : na, "Anchor Glow", color=color.new(anchorCol, 50), linewidth=6)
+plot(anchOn ? anchor : na, "Anchor",      color=anchorCol,               linewidth=2)
 
 // ═══════════════════════════════ COMBINED SIGNAL LOGIC ═══════════════════════════════
 
-profTotal = profBuy + profSell
-profBias  = profTotal > 0.0 ? (profBuy-profSell)/profTotal : 0.0
-currBuy   = buyNow + wickW*lowRej
-currSell  = sellNow + wickW*highRej
-currTotal = currBuy + currSell
-currBias  = currTotal > 0.0 ? (currBuy-currSell)/currTotal : 0.0
-hasProfile= visBands >= minBands and profTotal > 0.0
-actBias   = hasProfile ? profBias : currBias
+profTotal  = profBuy + profSell
+profBias   = profTotal > 0.0 ? (profBuy - profSell) / profTotal : 0.0
+currBuy    = buyNow + wickW * lowRej
+currSell   = sellNow + wickW * highRej
+currTotal  = currBuy + currSell
+currBias   = currTotal > 0.0 ? (currBuy - currSell) / currTotal : 0.0
+hasProfile = visBands >= minBands and profTotal > 0.0
+actBias    = hasProfile ? profBias : currBias
 
 anchRising  = not na(anchor[1]) and anchor > anchor[1]
 anchFalling = not na(anchor[1]) and anchor < anchor[1]
-buyPress    = actBias >= sigDom  and (hasProfile ? buyBands > sellBands : (profTotal<=0.0 or profBias>-sigDom))
-sellPress   = actBias <= -sigDom and (hasProfile ? sellBands > buyBands : (profTotal<=0.0 or profBias<sigDom))
+buyPress    = actBias >= sigDom  and (hasProfile ? buyBands > sellBands : (profTotal <= 0.0 or profBias > -sigDom))
+sellPress   = actBias <= -sigDom and (hasProfile ? sellBands > buyBands : (profTotal <= 0.0 or profBias < sigDom))
 
-// Confluence score at current bar's close
-float c0 = close
-float fibScore = f_fibScore(c0)
+float c0        = close
+float fibScore  = f_fibScore(c0)
 [obScore, fvgScore, obBull, obBear, fvBull, fvBear, zSlBull, zSlBear] = f_zoneInfo(c0)
 float confScore = fibScore + obScore + fvgScore
 
-// Direction character
 bool longSetup  = hasProfile and not na(anchor) and close > anchor and anchRising  and buyPress  and confScore >= minConf
 bool shortSetup = hasProfile and not na(anchor) and close < anchor and anchFalling and sellPress and confScore >= minConf
 
 var int lastBuy  = na
 var int lastSell = na
-buySig  = longSetup  and not longSetup[1]  and barstate.isconfirmed and (na(lastBuy)  or bar_index-lastBuy  >= sigGap)
-sellSig = shortSetup and not shortSetup[1] and barstate.isconfirmed and (na(lastSell) or bar_index-lastSell >= sigGap)
+buySig  = longSetup  and not longSetup[1]  and barstate.isconfirmed and (na(lastBuy)  or bar_index - lastBuy  >= sigGap)
+sellSig = shortSetup and not shortSetup[1] and barstate.isconfirmed and (na(lastSell) or bar_index - lastSell >= sigGap)
 
-// ═══════════════════════════════ RISK LEVELS ═══════════════════════════════
+// ═══════════════════════════════ TP FROM FIB ═══════════════════════════════
 
 f_tpFib(bool isLong) =>
     float tp = na
     if not na(h3) and not na(l3)
-        d = h3 - l3
-        tp := isLong
-             ? (z3 ? h3 + d*(tpFibExt-1.0) : l3 + d*tpFibExt)
-             : (z3 ? l3 - d*(tpFibExt-1.0) : h3 - d*tpFibExt)
+        float d = h3 - l3
+        if isLong
+            tp := z3 ? h3 + d * (tpFibExt - 1.0) : l3 + d * tpFibExt
+        else
+            tp := z3 ? l3 - d * (tpFibExt - 1.0) : h3 - d * tpFibExt
     tp
 
 // ═══════════════════════════════ STRATEGY ENTRIES / EXITS ═══════════════════════════════
 
 if buySig
-    lastBuy := bar_index
-    // Stop loss: zone-based (OB/FVG bottom) or ATR-based fallback
-    float slPrice = slMode == "Zone-based"
-         ? nz(zSlBull, low - slAtr * atr14) - syminfo.mintick
-         : low - slAtr * atr14
-    float risk    = close - slPrice
-    // Take profit
-    float tpPrice = tpMode == "Fib extension"
-         ? nz(f_tpFib(true), close + risk * tpR)
-         : close + risk * tpR
+    lastBuy    := bar_index
+    float slPrice = na
+    if slMode == "Zone-based"
+        slPrice := na(zSlBull) ? low - slAtr * atr14 : zSlBull - syminfo.mintick
+    else
+        slPrice := low - slAtr * atr14
+    float risk = close - slPrice
+    float tpPrice = na
+    if tpMode == "Fib extension"
+        float fibTp = f_tpFib(true)
+        tpPrice := na(fibTp) ? close + risk * tpR : fibTp
+    else
+        tpPrice := close + risk * tpR
     if risk > 0 and tpPrice > close
-        strategy.entry("Long", strategy.long,
-             comment="Σ" + str.tostring(confScore,"#.#") + stars(confScore))
-        strategy.exit("Long-X", "Long", stop=slPrice, limit=tpPrice)
+        strategy.entry("Long",  strategy.long,  comment="Σ" + str.tostring(confScore, "#.#") + " " + stars(confScore))
+        strategy.exit("Long-X", "Long",  stop=slPrice, limit=tpPrice)
 
 if sellSig
-    lastSell := bar_index
-    float slPrice = slMode == "Zone-based"
-         ? nz(zSlBear, high + slAtr * atr14) + syminfo.mintick
-         : high + slAtr * atr14
-    float risk    = slPrice - close
-    float tpPrice = tpMode == "Fib extension"
-         ? nz(f_tpFib(false), close - risk * tpR)
-         : close - risk * tpR
+    lastSell   := bar_index
+    float slPrice = na
+    if slMode == "Zone-based"
+        slPrice := na(zSlBear) ? high + slAtr * atr14 : zSlBear + syminfo.mintick
+    else
+        slPrice := high + slAtr * atr14
+    float risk = slPrice - close
+    float tpPrice = na
+    if tpMode == "Fib extension"
+        float fibTp = f_tpFib(false)
+        tpPrice := na(fibTp) ? close - risk * tpR : fibTp
+    else
+        tpPrice := close - risk * tpR
     if risk > 0 and tpPrice < close
-        strategy.entry("Short", strategy.short,
-             comment="Σ" + str.tostring(confScore,"#.#") + stars(confScore))
+        strategy.entry("Short",  strategy.short, comment="Σ" + str.tostring(confScore, "#.#") + " " + stars(confScore))
         strategy.exit("Short-X", "Short", stop=slPrice, limit=tpPrice)
 
-// Trailing anchor-cross exit
 if trailStop
     if strategy.position_size > 0 and close < anchor
         strategy.close("Long",  comment="Anchor cross ↓")
@@ -623,9 +717,9 @@ if trailStop
 
 // ═══════════════════════════════ SIGNAL LABELS ═══════════════════════════════
 
-safeAtr  = math.max(nz(atr14, high-low), syminfo.mintick)
-labPad   = math.max(safeAtr*0.12, syminfo.mintick*2.0)
-gapMax   = math.max(safeAtr*labMaxGap, labPad)
+safeAtr  = math.max(nz(atr14, high - low), syminfo.mintick)
+labPad   = math.max(safeAtr * 0.12, syminfo.mintick * 2.0)
+gapMax   = math.max(safeAtr * labMaxGap, labPad)
 recentLo = ta.lowest( low,  labLookback)
 recentHi = ta.highest(high, labLookback)
 buyLabY  = math.max(recentLo - labPad, low  - gapMax)
@@ -640,54 +734,55 @@ if buySig
     label.new(bar_index, buyLabY, "BUY " + stars(confScore),
          xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_up,
          color=buyLabCol, textcolor=txtCol_s, size=size.small,
-         tooltip="Confluence Score: " + str.tostring(confScore,"#.#") + "\nFactors:" + compStr +
-                 "\nBuying pressure: " + str.tostring(actBuyShare,"#.0") + "%" +
+         tooltip="Confluence Score: " + str.tostring(confScore, "#.#") +
+                 "\nFactors:" + compStr +
+                 "\nBuying pressure: " + str.tostring(actBuyShare, "#.0") + "%" +
                  "\nVisible bands: " + str.tostring(visBands) + "/12" +
                  "\nPrice above rising anchor\n[Confirmed bar only]")
-    alert("Confluence Pressure: BUY on " + syminfo.ticker + " " + timeframe.period +
-          " | Score: " + str.tostring(confScore,"#.#") + compStr +
-          " | Bias: " + str.tostring(actBuyShare,"#.0") + "%", alert.freq_once_per_bar)
+    alert("CP Strategy: BUY on " + syminfo.ticker + " " + timeframe.period +
+          " | Score: " + str.tostring(confScore, "#.#") + compStr +
+          " | Bias: " + str.tostring(actBuyShare, "#.0") + "%", alert.freq_once_per_bar)
 
 if sellSig
     label.new(bar_index, sellLabY, "SELL " + stars(confScore),
          xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_down,
          color=sellLabCol, textcolor=txtCol_s, size=size.small,
-         tooltip="Confluence Score: " + str.tostring(confScore,"#.#") + "\nFactors:" + compStr +
-                 "\nSelling pressure: " + str.tostring(100.0-actBuyShare,"#.0") + "%" +
+         tooltip="Confluence Score: " + str.tostring(confScore, "#.#") +
+                 "\nFactors:" + compStr +
+                 "\nSelling pressure: " + str.tostring(100.0 - actBuyShare, "#.0") + "%" +
                  "\nVisible bands: " + str.tostring(visBands) + "/12" +
                  "\nPrice below falling anchor\n[Confirmed bar only]")
-    alert("Confluence Pressure: SELL on " + syminfo.ticker + " " + timeframe.period +
-          " | Score: " + str.tostring(confScore,"#.#") + compStr +
-          " | Bias: " + str.tostring(100.0-actBuyShare,"#.0") + "%", alert.freq_once_per_bar)
+    alert("CP Strategy: SELL on " + syminfo.ticker + " " + timeframe.period +
+          " | Score: " + str.tostring(confScore, "#.#") + compStr +
+          " | Bias: " + str.tostring(100.0 - actBuyShare, "#.0") + "%", alert.freq_once_per_bar)
 
-// Live confluence score label (last bar only)
 if showScore and barstate.islast
     scoreCol = confScore >= minConf
-         ? (longSetup ? color.new(buyCol,30) : shortSetup ? color.new(sellCol,30) : color.new(color.gray,40))
-         : color.new(color.gray,60)
-    label.new(bar_index+1, close, "Σ " + str.tostring(confScore,"#.#") + compStr,
+         ? (longSetup ? color.new(buyCol, 30) : shortSetup ? color.new(sellCol, 30) : color.new(color.gray, 40))
+         : color.new(color.gray, 60)
+    label.new(bar_index + 1, close, "Σ " + str.tostring(confScore, "#.#") + compStr,
          xloc=xloc.bar_index, yloc=yloc.price, style=label.style_label_left,
          color=scoreCol, textcolor=color.white, size=size.tiny,
-         tooltip="Live confluence score at current price.\nFib: " + str.tostring(fibScore,"#.#") +
-                 " | OB: " + str.tostring(obScore,"#.#") + " | FVG: " + str.tostring(fvgScore,"#.#"))
+         tooltip="Live confluence at current price\nFib: " + str.tostring(fibScore, "#.#") +
+                 " | OB: " + str.tostring(obScore, "#.#") +
+                 " | FVG: " + str.tostring(fvgScore, "#.#"))
 
-// Optional OB / FVG zone boxes (last bar only)
 if showZones and barstate.islast
     for z in obZones
         box.new(z.leftIdx, z.top, bar_index, z.bot,
-             border_color=color.new(z.isBull?buyCol:sellCol,30),
+             border_color=color.new(z.isBull ? buyCol : sellCol, 30),
              border_width=1,
-             bgcolor=color.new(z.isBull?buyCol:sellCol,80))
+             bgcolor=color.new(z.isBull ? buyCol : sellCol, 80))
     for z in fvgZones
         box.new(z.leftIdx, z.top, bar_index, z.bot,
-             border_color=color.new(z.isBull?buyCol:sellCol,20),
-             border_width=1, border_style=line.style_dashed,
-             bgcolor=color.new(z.isBull?buyCol:sellCol,88))
+             border_color=color.new(z.isBull ? buyCol : sellCol, 20),
+             border_width=1,
+             border_style=line.style_dashed,
+             bgcolor=color.new(z.isBull ? buyCol : sellCol, 88))
 
-// ══ Warning: no volume data ══════════════════════════════════════════════
 float cumVol = ta.cum(nz(volume))
 var table warnTable = table.new(position.bottom_right, 1, 1)
 if barstate.islast and cumVol == 0
     table.cell(warnTable, 0, 0,
-         "No volume data — OB/FVG still active, but Volume Delta and Hybrid pressure modes are degraded. Use Price Pressure mode.",
-         text_color=color.white, text_size=size.small, bgcolor=color.new(color.orange,20))
+         "No volume data — OB/FVG still active but Volume Delta / Hybrid modes are degraded. Use Price Pressure mode.",
+         text_color=color.white, text_size=size.small, bgcolor=color.new(color.orange, 20))
