@@ -147,68 +147,104 @@ def sync_data(
         ~Position.ticket.in_(active_tickets)
     ).delete(synchronize_session=False)
 
-    for p in payload.positions:
-        pos = db.query(Position).filter(Position.ticket == p.ticket).first()
-        pos_time = broker_ts_to_utc(p.time)
-        if not pos:
-            pos = Position(
-                account_id=current_account_id,
-                ticket=p.ticket,
-                symbol=p.symbol,
-                type=p.type,
-                volume=p.volume,
-                price_open=p.price_open,
-                price_current=p.price_current,
-                sl=p.sl,
-                tp=p.tp,
-                profit=p.profit,
-                swap=p.swap,
-                time=pos_time,
-                updated_at=datetime.utcnow()
-            )
-            db.add(pos)
-        else:
-            pos.symbol = p.symbol
-            pos.type = p.type
-            pos.volume = p.volume
-            pos.price_open = p.price_open
-            pos.price_current = p.price_current
-            pos.sl = p.sl
-            pos.tp = p.tp
-            pos.profit = p.profit
-            pos.swap = p.swap
-            pos.updated_at = datetime.utcnow()
+    if payload.positions:
+        existing_pos_map = {
+            pos.ticket: pos
+            for pos in db.query(Position).filter(Position.account_id == current_account_id).all()
+        }
+        for p in payload.positions:
+            pos_time = broker_ts_to_utc(p.time)
+            pos = existing_pos_map.get(p.ticket)
+            if not pos:
+                pos = Position(
+                    account_id=current_account_id,
+                    ticket=p.ticket,
+                    symbol=p.symbol,
+                    type=p.type,
+                    volume=p.volume,
+                    price_open=p.price_open,
+                    price_current=p.price_current,
+                    sl=p.sl,
+                    tp=p.tp,
+                    profit=p.profit,
+                    swap=p.swap,
+                    time=pos_time,
+                    updated_at=datetime.utcnow()
+                )
+                db.add(pos)
+            else:
+                pos.symbol = p.symbol
+                pos.type = p.type
+                pos.volume = p.volume
+                pos.price_open = p.price_open
+                pos.price_current = p.price_current
+                pos.sl = p.sl
+                pos.tp = p.tp
+                pos.profit = p.profit
+                pos.swap = p.swap
+                pos.updated_at = datetime.utcnow()
 
-    # 3. Ingest Deals
-    for d in payload.deals:
-        existing = db.query(Deal).filter(Deal.deal_id == d.deal_id).first()
-        if not existing:
-            deal_time = broker_ts_to_utc(d.time)
-            deal = Deal(
-                account_id=current_account_id,
-                deal_id=d.deal_id,
-                order_id=d.order_id,
-                position_id=d.position_id,
-                symbol=d.symbol,
-                type=d.type,
-                entry=d.entry,
-                volume=d.volume,
-                price=d.price,
-                profit=d.profit,
-                commission=d.commission,
-                swap=d.swap,
-                timestamp=deal_time
-            )
-            db.add(deal)
+    # 3. Ingest Deals (Optimized Batch Ingestion)
+    new_deals_count = 0
+    if payload.deals:
+        # Step 3a: Get all existing deal_ids for this account in 1 query
+        existing_deal_ids = {
+            r[0] for r in db.query(Deal.deal_id).filter(
+                Deal.account_id == current_account_id
+            ).all()
+        }
+
+        # Step 3b: Filter candidate new deals
+        candidate_deals = [d for d in payload.deals if d.deal_id not in existing_deal_ids]
+
+        if candidate_deals:
+            # Check if any candidate deal_id is already in the database across other accounts (chunks of 500)
+            candidate_ids = [d.deal_id for d in candidate_deals]
+            other_existing_ids = set()
+            chunk_size = 500
+            for i in range(0, len(candidate_ids), chunk_size):
+                chunk = candidate_ids[i:i + chunk_size]
+                rows = db.query(Deal.deal_id).filter(Deal.deal_id.in_(chunk)).all()
+                other_existing_ids.update(r[0] for r in rows)
+
+            new_deals = []
+            for d in candidate_deals:
+                if d.deal_id not in other_existing_ids:
+                    deal_time = broker_ts_to_utc(d.time)
+                    new_deals.append(
+                        Deal(
+                            account_id=current_account_id,
+                            deal_id=d.deal_id,
+                            order_id=d.order_id,
+                            position_id=d.position_id,
+                            symbol=d.symbol,
+                            type=d.type,
+                            entry=d.entry,
+                            volume=d.volume,
+                            price=d.price,
+                            profit=d.profit,
+                            commission=d.commission,
+                            swap=d.swap,
+                            timestamp=deal_time
+                        )
+                    )
+
+            if new_deals:
+                db.add_all(new_deals)
+                new_deals_count = len(new_deals)
 
     db.commit()
 
     # 4. Match position tickets into trades (scoped to this account)
-    process_deal_matching(db, current_account_id)
+    # Only run matching if new deals were inserted, OR if account has no closed trades yet
+    has_trades = db.query(Trade.id).filter(Trade.account_id == current_account_id).first() is not None
+    if new_deals_count > 0 or not has_trades:
+        process_deal_matching(db, current_account_id)
 
     return {
         "status": "success",
         "deals_received": len(payload.deals),
+        "deals_new": new_deals_count,
         "positions_active": len(payload.positions),
         "account_balance": account.balance
     }

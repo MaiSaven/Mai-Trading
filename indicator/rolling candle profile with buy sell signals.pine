@@ -1,0 +1,382 @@
+//@version=6
+// This work is licensed under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+// https://creativecommons.org/licenses/by-nc-sa/4.0/
+// (c) Zeiierman {
+indicator("Rolling Candle Profile with Buy/Sell Signals (Zeiierman)", overlay=true, behind_chart=true, max_bars_back=250, calc_bars_count=2500, max_labels_count=500)
+//}
+
+// ~~ Tooltips {
+const string ttAnchor="Selects the reference price series used to construct the rolling pressure corridor."
+const string ttAnchorLen="Lookback for the selected anchor when its calculation uses a length."
+const string ttPress="Price Pressure isolates directional price displacement, follow-through and wick rejection without volume. Volume Delta estimates directional traded volume. Hybrid combines price response and volume. None are true bid/ask delta."
+const string ttTfMode="Auto selects a smaller timeframe where available. Manual uses the chosen timeframe."
+const string ttManual="Used in Manual mode. Chart uses the main chart timeframe; choose a lower timeframe to use intrabar pressure."
+const string ttWidth="Lower values create more distinct pressure pockets. Higher values smooth the gradient."
+const string ttWick="Contribution of upper- and lower-wick rejection to the directional pressure field."
+const string ttBright="Controls visibility of the rolling gradient without changing the underlying pressure calculation."
+const string ttBuyCol="Color for visible buying-pressure bands and a rising anchor."
+const string ttSellCol="Color for visible selling-pressure bands and a falling anchor."
+const string ttShowAnchor="Draw the anchor and its wider, 50%-transparent glow."
+const string ttSignals="Display profile-aligned BUY and SELL labels when the existing signal rules are met."
+const string ttDom="Minimum directional pressure imbalance. Signals require the selected Minimum colored bands. The directional imbalance is measured from the visible Rolling Profile."
+const string ttBands="Requires at least this many of the 12 gradient bands to be visibly colored before a BUY or SELL signal can trigger. Lower the value for earlier signals."
+const string ttGap="Minimum bars between BUY signals or between SELL signals. Opposite-direction signals have independent spacing and can trigger immediately."
+const string ttTextSize="Shared BUY / SELL label text size."
+const string ttTextCol="Shared BUY / SELL label text color."
+const string ttBuyLabel="Background color of BUY labels."
+const string ttSellLabel="Background color of SELL labels."
+const string ttExtremes="Place a signal just beyond the recent high/low, but always on its actual detection bar."
+const string ttMaxGap="Caps how far labels can sit above/below the detection candle, preventing floating labels when the recent extreme occurred several bars ago."
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ Groups {
+gA="Anchor"
+gP="Pressure engine"
+gG="Gradient"
+gS="Signals"
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ Inputs {
+// Anchor
+anchType=input.string("EMA", "Anchor", options=["EMA", "SMA", "VWMA", "VWAP", "Donchian Mid"], group=gA, inline="anchor", tooltip=ttAnchor)
+anchorLen=input.int(21, "Length", minval=5, maxval=200, group=gA, inline="anchor", tooltip=ttAnchorLen)
+
+// Pressure engine
+pressMode=input.string("Price Pressure", "Pressure input", options=["Price Pressure", "Volume Delta", "Hybrid"], group=gP, inline="pressMode", tooltip=ttPress)
+tfMode=input.string("Manual", "Intrabar timeframe", options=["Auto", "Manual"], group=gP, inline="ltf", tooltip=ttTfMode)
+manTf=input.timeframe("", "", group=gP, inline="ltf", active=tfMode=="Manual", tooltip=ttManual)
+pxWidth=input.float(0.01, "Price-localization width", minval=0.01, maxval=2.0, step=0.05, group=gP, inline="pxWidth", tooltip=ttWidth)
+wickW=input.float(0.85, "Wick rejection influence", minval=0.0, maxval=2.5, step=0.05, group=gP, inline="wickW", tooltip=ttWick)
+
+// Gradient
+brightness=input.float(3.0, "Brightness", minval=0.5, maxval=3.0, step=0.1, group=gG, inline="brightness", tooltip=ttBright)
+buyCol=input.color(#00EFB4, "Buying pressure", group=gG, inline="pressCol", tooltip=ttBuyCol)
+sellCol=input.color(#FF3D6E, "Selling pressure", group=gG, inline="pressCol", tooltip=ttSellCol)
+anchOn=input.bool(true, "Show anchor", group=gG, inline="anchOn", tooltip=ttShowAnchor)
+
+// Signals
+sigOn=input.bool(true, "BUY / SELL signals", group=gS, inline="sigOn", tooltip=ttSignals)
+sigDom=input.float(0.25, "Pressure dominance threshold", minval=0.05, maxval=0.95, step=0.05, group=gS, inline="sigDom", active=sigOn, tooltip=ttDom)
+minBands=input.int(7, "Minimum colored bands", minval=1, maxval=12, group=gS, inline="minBands", active=sigOn, tooltip=ttBands)
+sigGap=input.int(6, "Minimum signal spacing", minval=1, maxval=40, group=gS, inline="sigGap", active=sigOn, tooltip=ttGap)
+txtSize=input.string("Small", "Text size", options=["Tiny", "Small", "Normal", "Large", "Huge"], group=gS, inline="sigTxt", active=sigOn, tooltip=ttTextSize)
+txtCol=input.color(color.white, "Text color", group=gS, inline="sigTxt", active=sigOn, tooltip=ttTextCol)
+buyLabCol=input.color(#22c55e, "BUY label", group=gS, inline="sigCol", active=sigOn, tooltip=ttBuyLabel)
+sellLabCol=input.color(#f23645, "SELL label", group=gS, inline="sigCol", active=sigOn, tooltip=ttSellLabel)
+labLookback=input.int(10, "Label extremes lookback", minval=1, maxval=30, group=gS, inline="labLookback", active=sigOn, tooltip=ttExtremes)
+labMaxGap=input.float(1.0, "Max label distance (ATR)", minval=0.15, maxval=3.0, step=0.05, group=gS, inline="labMaxGap", active=sigOn, tooltip=ttMaxGap)
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ Helper Functions {
+clamp(float x, float lo, float hi) => math.max(lo, math.min(hi, x))
+kernel(float here, float center, float invW) =>
+    q = 1.0 - math.abs(here - center) * invW
+    q <= 0.0 ? 0.0 : q * q * (3.0 - 2.0 * q)
+mixCol(color a, color b, float amount) =>
+    t = clamp(amount, 0.0, 1.0)
+    color.rgb(int(math.round(color.r(a) * (1.0 - t) + color.r(b) * t)), int(math.round(color.g(a) * (1.0 - t) + 
+     color.g(b) * t)), int(math.round(color.b(a) * (1.0 - t) + color.b(b) * t)))
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ Anchor {
+baseEma = ta.ema(close, anchorLen)
+anchor = switch anchType
+    "SMA" => ta.sma(close, anchorLen)
+    "VWMA" =>
+        v = ta.vwma(close, anchorLen)
+        na(v) ? baseEma : v
+    "VWAP" =>
+        v = ta.vwap(hlc3)
+        na(v) ? baseEma : v
+    "Donchian Mid" => (ta.highest(high, anchorLen)[1] + ta.lowest(low, anchorLen)[1]) * 0.5
+    => baseEma
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ Intrabar Pressure {
+chartSec = timeframe.in_seconds()
+propSec = int(math.max(60.0, math.floor(chartSec / 5.0)))
+autoTf = timeframe.from_seconds(propSec)
+ltf = tfMode == "Auto" ? autoTf : manTf
+ltfSec = timeframe.in_seconds(ltf)
+useLtf = ltfSec < chartSec
+reqBars = int(math.min(100000.0, math.ceil((2500.0 + 250.0) * chartSec / math.max(ltfSec, 1.0))))
+buyNow = 0.0
+sellNow = 0.0
+buyPxSum = 0.0
+sellPxSum = 0.0
+lowRej = 0.0
+highRej = 0.0
+lowPxSum = 0.0
+highPxSum = 0.0
+stallNow = 0.0
+stallPxSum = 0.0
+totalNow = 0.0
+isPrice = pressMode == "Price Pressure"
+isHybrid = pressMode == "Hybrid"
+hasMicro = false
+
+if useLtf
+    [io, ih, il, ic, iv] = request.security_lower_tf(syminfo.tickerid, ltf, [open, high, low, close, volume], 
+     ignore_invalid_timeframe = true, calc_bars_count = reqBars)
+    nMicro = ic.size()
+    microLimit = math.min(nMicro, 90)
+    if microLimit > 0
+        hasMicro := true
+        prevResp = 0.0
+        for i = nMicro - microLimit to nMicro - 1
+            o = io.get(i)
+            h = ih.get(i)
+            l = il.get(i)
+            c = ic.get(i)
+            rawV = nz(iv.get(i)) > 0.0 ? iv.get(i) : 1.0
+            r = math.max(h - l, syminfo.mintick)
+            prevC = i > 0 ? ic.get(i - 1) : nz(close[1], o)
+            directional = clamp((c - o) / r, -1.0, 1.0)
+            impulse = math.abs(directional)
+            travel = clamp((c - prevC) / r, -1.5, 1.5)
+            closeLoc = clamp((2.0 * c - h - l) / r, -1.0, 1.0)
+            response = clamp(0.55 * travel + 0.25 * directional + 0.20 * closeLoc, -1.5, 1.5)
+            force = math.abs(response)
+            continuation = response * prevResp > 0.0 ? 1.45 : response * prevResp < 0.0 ? 0.55 : 1.0
+            cp = (h + l + c) / 3.0
+            lowW = math.max(0.0, math.min(o, c) - l) / r
+            highW = math.max(0.0, h - math.max(o, c)) / r
+            v = isHybrid ? rawV * (0.65 + force * 0.70) : rawV
+            flowDir = isHybrid ? clamp(0.45 * directional + 0.55 * response, -1.0, 1.0) : directional
+            buyPart = isPrice ? math.max(response, 0.0) * (1.0 + force * 1.25) * continuation * 2.0 : v * (1.0 + flowDir) * 0.5
+            sellPart = isPrice ? math.max(-response, 0.0) * (1.0 + force * 1.25) * continuation * 2.0 : v * (1.0 - flowDir) * 0.5
+            rejBuy = isPrice ? lowW * (0.35 + 1.20 * math.max(response, 0.0)) : v * lowW
+            rejSell = isPrice ? highW * (0.35 + 1.20 * math.max(-response, 0.0)) : v * highW
+            stalled = isPrice ? (1.0 - clamp(force, 0.0, 1.0)) * 0.20 : v * (1.0 - impulse)
+
+            bPx = isPrice ? c * 0.70 + h * 0.30 : isHybrid ? (cp * 0.75 + h * 0.25) : cp
+            sPx = isPrice ? c * 0.70 + l * 0.30 : isHybrid ? (cp * 0.75 + l * 0.25) : cp
+            buyNow += buyPart
+            sellNow += sellPart
+            buyPxSum += buyPart * bPx
+            sellPxSum += sellPart * sPx
+            lowRej += rejBuy
+            highRej += rejSell
+            lowPxSum += rejBuy * (l + math.min(o, c)) * 0.5
+            highPxSum += rejSell * (h + math.max(o, c)) * 0.5
+            stallNow += stalled
+            stallPxSum += stalled * cp
+            totalNow += isPrice ? (buyPart + sellPart + rejBuy + rejSell + stalled) : v
+            prevResp := response
+if not hasMicro
+    r = math.max(high - low, syminfo.mintick)
+    directional = clamp((close - open) / r, -1.0, 1.0)
+    impulse = math.abs(directional)
+    travel = clamp((close - nz(close[1], open)) / r, -1.5, 1.5)
+    closeLoc = clamp((2.0 * close - high - low) / r, -1.0, 1.0)
+    response = clamp(0.55 * travel + 0.25 * directional + 0.20 * closeLoc, -1.5, 1.5)
+    force = math.abs(response)
+    priorTravel = nz(close[1] - close[2])
+    continuation = priorTravel * response > 0.0 ? 1.45 : priorTravel * response < 0.0 ? 0.55 : 1.0
+    rawV = nz(volume) > 0.0 ? volume : 1.0
+    v = isHybrid ? rawV * (0.65 + force * 0.70) : rawV
+    flowDir = isHybrid ? clamp(0.45 * directional + 0.55 * response, -1.0, 1.0) : directional
+    buyNow := isPrice ? math.max(response, 0.0) * (1.0 + force * 1.25) * continuation * 2.0 : v * (1.0 + flowDir) * 0.5
+    sellNow := isPrice ? math.max(-response, 0.0) * (1.0 + force * 1.25) * continuation * 2.0 : v * (1.0 - flowDir) * 0.5
+    lowW = math.max(0.0, math.min(open, close) - low) / r
+    highW = math.max(0.0, high - math.max(open, close)) / r
+    lowRej := isPrice ? lowW * (0.35 + 1.20 * math.max(response, 0.0)) : v * lowW
+    highRej := isPrice ? highW * (0.35 + 1.20 * math.max(-response, 0.0)) : v * highW
+    stallNow := isPrice ? (1.0 - clamp(force, 0.0, 1.0)) * 0.20 : v * (1.0 - impulse)
+    bPx = isPrice ? close * 0.70 + high * 0.30 : isHybrid ? (hlc3 * 0.75 + high * 0.25) : hlc3
+    sPx = isPrice ? close * 0.70 + low * 0.30 : isHybrid ? (hlc3 * 0.75 + low * 0.25) : hlc3
+    buyPxSum := buyNow * bPx
+    sellPxSum := sellNow * sPx
+    lowPxSum := lowRej * (low + math.min(open, close)) * 0.5
+    highPxSum := highRej * (high + math.max(open, close)) * 0.5
+    stallPxSum := stallNow * hlc3
+    totalNow := isPrice ? (buyNow + sellNow + lowRej + highRej + stallNow) : v
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ Pressure Centers {
+buyCtr = buyNow > 0.0 ? buyPxSum / buyNow : hlc3
+sellCtr = sellNow > 0.0 ? sellPxSum / sellNow : hlc3
+lowCtr = lowRej > 0.0 ? lowPxSum / lowRej : low
+highCtr = highRej > 0.0 ? highPxSum / highRej : high
+stallCtr = stallNow > 0.0 ? stallPxSum / stallNow : hlc3
+baseline = ta.ema(totalNow, 55)
+flowScale = totalNow > 0.0 ? math.min(1.0, math.max(nz(baseline, totalNow), 0.000001) * 20.0 / totalNow) : 1.0
+buyNow *= flowScale
+sellNow *= flowScale
+lowRej *= flowScale
+highRej *= flowScale
+stallNow *= flowScale
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ Corridor Geometry {
+const int BANDS = 12
+bodyLo = math.min(open, close)
+bodyHi = math.max(open, close)
+edge = anchor < bodyLo ? bodyLo : anchor > bodyHi ? bodyHi : na
+atr = ta.atr(14)
+ready = bar_index >= math.max(anchorLen + 2, 60 + 2) and not na(edge) and not na(atr) and math.abs(edge - anchor) > 2 * syminfo.mintick
+distance = ready ? (edge - anchor) / BANDS : na
+gapSide = ready ? math.sign(edge - anchor) : 0.0
+distAtr = ready ? math.abs(edge - anchor) / math.max(atr, syminfo.mintick) : 0.0
+ageDecay = math.pow(0.5, 1.0 / 3)
+var array<color> bandColors = array.new_color(BANDS, na)
+color emptyBand = na
+bandColors.fill(emptyBand)
+
+profBuy = 0.0
+profSell = 0.0
+visBands = 0
+buyBands = 0
+sellBands = 0
+volBase = math.max(0.000001, nz(baseline, totalNow))
+localRange = math.max(nz(high - low, syminfo.mintick), syminfo.mintick)
+baseW = localRange * pxWidth
+baseWickW = baseW * 0.6
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ Band Pressure {
+if ready
+    minW = math.abs(distance) * (isPrice ? 1.15 : 1.8)
+    minWickW = math.abs(distance) * (isPrice ? 1.00 : 1.3)
+    for b = 0 to BANDS - 1
+        here = anchor + distance * (b + 0.5)
+        buyField = 0.0
+        sellField = 0.0
+        stressField = 0.0
+        age = 1.0
+        for k = 0 to 60 - 1
+            invW = 1.0 / math.max(math.max(baseW[k], minW), syminfo.mintick)
+            invWickW = 1.0 / math.max(math.max(baseWickW[k], minWickW), syminfo.mintick)
+            weightedAge = age
+            buyField += nz(buyNow[k]) * kernel(here, nz(buyCtr[k], hlc3[k]), invW) * weightedAge
+            sellField += nz(sellNow[k]) * kernel(here, nz(sellCtr[k], hlc3[k]), invW) * weightedAge
+            buyField += wickW * nz(lowRej[k]) * kernel(here, nz(lowCtr[k], low[k]), invWickW) * weightedAge
+            sellField += wickW * nz(highRej[k]) * kernel(here, nz(highCtr[k], high[k]), invWickW) * weightedAge
+            stressField += nz(stallNow[k]) * kernel(here, nz(stallCtr[k], hlc3[k]), invW) * weightedAge
+            age *= ageDecay
+        total = buyField + sellField
+        imbalance = total > 0.0 ? clamp((buyField - sellField) / total * 3.0, -1.0, 1.0) : 0.0
+
+        activity = clamp(total / (volBase * (isPrice ? 0.80 : 2.0)), 0.0, 1.0)
+        stalledRatio = clamp(stressField / math.max(total, 0.000001), 0.0, 1.0)
+        friction = clamp(activity * stalledRatio, 0.0, 1.0)
+        tintMix = isPrice ? clamp(0.40 + 0.60 * math.abs(imbalance), 0.0, 1.0) : clamp((0.18 + 0.82 * math.abs(imbalance)) * (0.75 + 0.25 * activity), 0.0, 1.0)
+        hue = imbalance > 0.03 ? mixCol(#728096, buyCol, tintMix) : imbalance < -0.03 ? mixCol(#728096, sellCol, tintMix) : #728096
+        if activity < 0.08
+            hue := mixCol(#728096, hue, activity / 0.08)
+        color bandCol = na
+        if isPrice
+
+            alpha = int(math.round(clamp(69.0 - brightness * 12.0 - 35.0 * activity - 17.0 * math.abs(imbalance), 3.0, 88.0)))
+            bandCol := activity >= 0.08 and math.abs(imbalance) >= 0.14 ? color.new(hue, alpha) : na
+        else
+
+            alpha = int(math.round(clamp(60.0 - brightness * 21.0 - 22.0 * activity - 12.0 * math.abs(imbalance), 4.0, 76.0)))
+            if activity < 0.08
+                alpha := 76
+            bandCol := alpha < 8 ? color.new(hue, alpha) : na
+        bandColors.set(b, bandCol)
+
+        if not na(bandCol)
+            profBuy += buyField
+            profSell += sellField
+            visBands += 1
+            if imbalance > 0.03
+                buyBands += 1
+            else if imbalance < -0.03
+                sellBands += 1
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ Gradient Rendering {
+p00 = ready ? anchor : na
+p01 = ready ? anchor + distance : na
+p02 = ready ? anchor + distance * 2 : na
+p03 = ready ? anchor + distance * 3 : na
+p04 = ready ? anchor + distance * 4 : na
+p05 = ready ? anchor + distance * 5 : na
+p06 = ready ? anchor + distance * 6 : na
+p07 = ready ? anchor + distance * 7 : na
+p08 = ready ? anchor + distance * 8 : na
+p09 = ready ? anchor + distance * 9 : na
+p10 = ready ? anchor + distance * 10 : na
+p11 = ready ? anchor + distance * 11 : na
+p12 = ready ? edge : na
+plotcandle(p00, math.max(p00, p01), math.min(p00, p01), p01, "Heat 01", color = bandColors.get(0), wickcolor = na, bordercolor = na)
+plotcandle(p01, math.max(p01, p02), math.min(p01, p02), p02, "Heat 02", color = bandColors.get(1), wickcolor = na, bordercolor = na)
+plotcandle(p02, math.max(p02, p03), math.min(p02, p03), p03, "Heat 03", color = bandColors.get(2), wickcolor = na, bordercolor = na)
+plotcandle(p03, math.max(p03, p04), math.min(p03, p04), p04, "Heat 04", color = bandColors.get(3), wickcolor = na, bordercolor = na)
+plotcandle(p04, math.max(p04, p05), math.min(p04, p05), p05, "Heat 05", color = bandColors.get(4), wickcolor = na, bordercolor = na)
+plotcandle(p05, math.max(p05, p06), math.min(p05, p06), p06, "Heat 06", color = bandColors.get(5), wickcolor = na, bordercolor = na)
+plotcandle(p06, math.max(p06, p07), math.min(p06, p07), p07, "Heat 07", color = bandColors.get(6), wickcolor = na, bordercolor = na)
+plotcandle(p07, math.max(p07, p08), math.min(p07, p08), p08, "Heat 08", color = bandColors.get(7), wickcolor = na, bordercolor = na)
+plotcandle(p08, math.max(p08, p09), math.min(p08, p09), p09, "Heat 09", color = bandColors.get(8), wickcolor = na, bordercolor = na)
+plotcandle(p09, math.max(p09, p10), math.min(p09, p10), p10, "Heat 10", color = bandColors.get(9), wickcolor = na, bordercolor = na)
+plotcandle(p10, math.max(p10, p11), math.min(p10, p11), p11, "Heat 11", color = bandColors.get(10), wickcolor = na, bordercolor = na)
+plotcandle(p11, math.max(p11, p12), math.min(p11, p12), p12, "Heat 12", color = bandColors.get(11), wickcolor = na, bordercolor = na)
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ Anchor Rendering {
+
+anchorCol = anchor >= nz(anchor[1], anchor) ? buyCol : sellCol
+plot(anchOn ? anchor : na, "Anchor Glow", color = color.new(anchorCol, 50), linewidth = 6)
+plot(anchOn ? anchor : na, "Anchor", color = anchorCol, linewidth = 2)
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ BUY / SELL Signals {
+
+labSize = switch txtSize
+    "Tiny" => size.tiny
+    "Small" => size.small
+    "Normal" => size.normal
+    "Large" => size.large
+    => size.huge
+
+profTotal = profBuy + profSell
+profBias = profTotal > 0.0 ? (profBuy - profSell) / profTotal : 0.0
+currBuy = buyNow + wickW * lowRej
+currSell = sellNow + wickW * highRej
+currTotal = currBuy + currSell
+currBias = currTotal > 0.0 ? (currBuy - currSell) / currTotal : 0.0
+hasProfile = visBands >= minBands and profTotal > 0.0
+actBias = hasProfile ? profBias : currBias
+actBuyShare = 50.0 * (1.0 + actBias)
+anchRising = not na(anchor[1]) and anchor > anchor[1]
+anchFalling = not na(anchor[1]) and anchor < anchor[1]
+
+buyPress = actBias >= sigDom and (hasProfile ? buyBands > sellBands : (profTotal <= 0.0 or profBias > -sigDom))
+sellPress = actBias <= -sigDom and (hasProfile ? sellBands > buyBands : (profTotal <= 0.0 or profBias < sigDom))
+
+buyAlign = hasProfile and not na(anchor) and close > anchor and anchRising and buyPress
+sellAlign = hasProfile and not na(anchor) and close < anchor and anchFalling and sellPress
+
+var int lastBuy = na
+var int lastSell = na
+buySig = sigOn and buyAlign and not buyAlign[1] and (na(lastBuy) or bar_index - lastBuy >= sigGap)
+sellSig = sigOn and sellAlign and not sellAlign[1] and (na(lastSell) or bar_index - lastSell >= sigGap)
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
+
+// ~~ Signal Label Placement {
+recentLo = ta.lowest(low, labLookback)
+recentHi = ta.highest(high, labLookback)
+safeAtr = math.max(nz(atr, high - low), syminfo.mintick)
+labPad = math.max(safeAtr * 0.12, syminfo.mintick * 2.0)
+gapMax = math.max(safeAtr * labMaxGap, labPad)
+buyLabY = math.max(recentLo - labPad, low - gapMax)
+sellLabY = math.min(recentHi + labPad, high + gapMax)
+if buySig
+    lastBuy := bar_index
+    statusText = barstate.isconfirmed ? "Confirmed BUY" : "Live BUY (not confirmed; can disappear before close)"
+    label.new(bar_index, buyLabY, "BUY", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_up, 
+     color = buyLabCol, textcolor = txtCol, size = labSize, tooltip = statusText + "\nBuying pressure: " + 
+     str.tostring(actBuyShare, "#.0") + "%\nVisible bands: " + str.tostring(visBands) + "/12\nPrice above rising anchor\nSmart high/low placement on the actual detection candle")
+    alert("Zeiierman Rolling Candle Profile: BUY " + (barstate.isconfirmed ? "confirmed" : "live") + " on " + 
+     syminfo.ticker + " " + timeframe.period + ". Buying pressure: " + str.tostring(actBuyShare, "#.0") + "%.", alert.freq_once_per_bar)
+if sellSig
+    lastSell := bar_index
+    statusText = barstate.isconfirmed ? "Confirmed SELL" : "Live SELL (not confirmed; can disappear before close)"
+    label.new(bar_index, sellLabY, "SELL", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, 
+     color = sellLabCol, textcolor = txtCol, size = labSize, tooltip = statusText + "\nSelling pressure: " + 
+     str.tostring(100.0 - actBuyShare, "#.0") + "%\nVisible bands: " + str.tostring(visBands) + "/12\nPrice below falling anchor\nSmart high/low placement on the actual detection candle")
+    alert("Zeiierman Rolling Candle Profile: SELL " + (barstate.isconfirmed ? "confirmed" : "live") + " on " + 
+     syminfo.ticker + " " + timeframe.period + ". Selling pressure: " + str.tostring(100.0 - actBuyShare, "#.0") + "%.", alert.freq_once_per_bar)
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~}
