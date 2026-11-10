@@ -96,12 +96,12 @@ stars(float score) =>
 // ═══════════════════════════════ ANCHOR ═══════════════════════════════
 
 baseEma = ta.ema(close, anchorLen)
+vwmaVal = ta.vwma(close, anchorLen)
+vwapVal = ta.vwap(hlc3)
 anchor  = switch anchType
     "SMA"          => ta.sma(close, anchorLen)
-    "VWMA"         => v = ta.vwma(close, anchorLen)
-                      na(v) ? baseEma : v
-    "VWAP"         => v = ta.vwap(hlc3)
-                      na(v) ? baseEma : v
+    "VWMA"         => na(vwmaVal) ? baseEma : vwmaVal
+    "VWAP"         => na(vwapVal) ? baseEma : vwapVal
     "Donchian Mid" => (ta.highest(high, anchorLen)[1] + ta.lowest(low, anchorLen)[1]) * 0.5
     =>                baseEma
 
