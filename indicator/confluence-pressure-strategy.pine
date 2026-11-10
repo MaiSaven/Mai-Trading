@@ -535,7 +535,8 @@ distance  = ready ? (edge - anchor) / BANDS : na
 ageDecay  = math.pow(0.5, 1.0 / 3)
 
 var array<color> bandColors = array.new_color(BANDS, na)
-bandColors.fill(na)
+color emptyBand = na
+bandColors.fill(emptyBand)
 
 profBuy   = 0.0
 profSell  = 0.0
