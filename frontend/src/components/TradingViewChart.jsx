@@ -24,9 +24,6 @@ export default function TradingViewChart({
   anchorData = [],
   pressureData = [],
   indicators = {},
-  zones = [],
-  signals = [],
-  liveSignal = null,
   orderFlow = null,     // { delta_series, imbalance_zones, live }
   symbol = 'XAUUSD',
   timeframe = 'M15',
@@ -34,7 +31,7 @@ export default function TradingViewChart({
   refreshInterval = 1000,
   onRefreshIntervalChange = null,
   orderFlowLimit = 50,
-  onOrderFlowLimitChange = null
+  onOrderFlowLimitChange = null,
 }) {
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
@@ -66,18 +63,14 @@ export default function TradingViewChart({
   const prevSymbolTfRef = useRef(`${symbol}_${timeframe}`);
 
   // Indicator Visibility Toggles
-  // All indicators and signals OFF by default for a clean chart
-  const [showSignals, setShowSignals] = useState(false);
+  // All indicators OFF by default for a clean chart
   const [showAnchor, setShowAnchor] = useState(false);
   const [showBollinger, setShowBollinger] = useState(false);
   const [showBBMA, setShowBBMA] = useState(false);
   const [subPane, setSubPane] = useState('none'); // 'pressure' | 'rsi' | 'macd' | 'delta' | 'absorption' | 'none'
-  const [showZones, setShowZones] = useState(false);
-  const [showImbalances, setShowImbalances] = useState(false);
   const [showAbsBubbles, setShowAbsBubbles] = useState(false);
   const [showBarDelta, setShowBarDelta] = useState(false);
   const [bubbleFilter, setBubbleFilter] = useState('ALL'); // 'ALL' | 'BUYER' | 'SELLER'
-  const [showTargets, setShowTargets] = useState(false);
   const [showVolumeProfile, setShowVolumeProfile] = useState(false);
 
   // Fast map of candle time -> delta metrics
@@ -671,38 +664,6 @@ export default function TradingViewChart({
       candlePriceLinesRef.current = [];
     }
 
-    // Imbalance Zones
-    if (showImbalances && orderFlow?.imbalance_zones?.length > 0) {
-      const sorted = [...orderFlow.imbalance_zones]
-        .sort((a, b) => b.ratio - a.ratio)
-        .slice(0, 10);
-
-      sorted.forEach((z) => {
-        const isBuy = z.type === 'BUY_DOM' || z.type === 'BUY_ONLY';
-        const lineColor = isBuy ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)';
-        const label = `${isBuy ? '⬆' : '⬇'} ${z.type} ${z.ratio}x`;
-
-        try {
-          const l1 = candleSeries.createPriceLine({
-            price: z.price_high,
-            color: lineColor,
-            lineWidth: 1,
-            lineStyle: 3,
-            axisLabelVisible: true,
-            title: label,
-          });
-          const l2 = candleSeries.createPriceLine({
-            price: z.price_low,
-            color: lineColor,
-            lineWidth: 1,
-            lineStyle: 3,
-            axisLabelVisible: false,
-          });
-          candlePriceLinesRef.current.push(l1, l2);
-        } catch (_) {}
-      });
-    }
-
     // Absorption Bubbles — canvas circles via LWC custom primitive (like TradingView footprint)
     const rawBubbles = orderFlow?.absorption_bubbles || orderFlow?.absorption_zones || [];
     if (showAbsBubbles && rawBubbles.length > 0) {
@@ -790,142 +751,21 @@ export default function TradingViewChart({
       }
     }
 
-    // SMC Zones (OB & FVG)
-    if (showZones && zones && zones.length > 0) {
-      zones.slice(-6).forEach((z) => {
-        const isOB = z.kind === 'OB';
-        const labelPrefix = isOB ? (z.is_bull ? 'Bullish OB' : 'Bearish OB') : (z.is_bull ? 'Bullish FVG' : 'Bearish FVG');
-        const lineColor = z.border_color || (z.is_bull ? '#10B981' : '#EF4444');
-
-        try {
-          const topL = candleSeries.createPriceLine({
-            price: z.top,
-            color: lineColor,
-            lineWidth: 1,
-            lineStyle: 1,
-            axisLabelVisible: true,
-            title: `${labelPrefix} Top: $${z.top}`,
-          });
-          const botL = candleSeries.createPriceLine({
-            price: z.bot,
-            color: lineColor,
-            lineWidth: 1,
-            lineStyle: 1,
-            axisLabelVisible: false,
-            title: `${labelPrefix} Bot: $${z.bot}`,
-          });
-          candlePriceLinesRef.current.push(topL, botL);
-        } catch (_) {}
-      });
-    }
-
-    // Live Trade Targets (Entry, SL, TP)
-    if (showTargets && liveSignal && liveSignal.signal !== 'WAIT' && liveSignal.entry_price) {
-      try {
-        const entryL = candleSeries.createPriceLine({
-          price: liveSignal.entry_price,
-          color: '#60A5FA',
-          lineWidth: 2,
-          lineStyle: 0,
-          axisLabelVisible: true,
-          title: `ENTRY: $${liveSignal.entry_price}`,
-        });
-        candlePriceLinesRef.current.push(entryL);
-
-        if (liveSignal.stop_loss) {
-          const slL = candleSeries.createPriceLine({
-            price: liveSignal.stop_loss,
-            color: '#F87171',
-            lineWidth: 2,
-            lineStyle: 2,
-            axisLabelVisible: true,
-            title: `SL: $${liveSignal.stop_loss}`,
-          });
-          candlePriceLinesRef.current.push(slL);
-        }
-
-        if (liveSignal.take_profit) {
-          const tpL = candleSeries.createPriceLine({
-            price: liveSignal.take_profit,
-            color: '#34D399',
-            lineWidth: 2,
-            lineStyle: 2,
-            axisLabelVisible: true,
-            title: `TP: $${liveSignal.take_profit}`,
-          });
-          candlePriceLinesRef.current.push(tpL);
-        }
-      } catch (_) {}
-    }
-
-    // F. Signal Markers
-    if (showSignals && signals && signals.length > 0 && candles && candles.length > 0) {
-      const markers = [];
-      signals.forEach((sig) => {
-        const sigSec = Math.floor(new Date(sig.time).getTime() / 1000);
-        const gradeTag = sig.quality_grade ? ` [${sig.quality_grade.replace(' ELITE', '+').replace(' HIGH', '')}]` : '';
-        markers.push({
-          time: sigSec,
-          position: sig.signal === 'BUY' ? 'belowBar' : 'aboveBar',
-          color: sig.signal === 'BUY' ? '#10B981' : '#EF4444',
-          shape: sig.signal === 'BUY' ? 'arrowUp' : 'arrowDown',
-          text: `${sig.signal}${gradeTag} (${sig.confluence_score}✦)`,
-        });
-      });
-
-      const sortedCandles = sanitizeData(candles);
-      const minTime = sortedCandles[0]?.time;
-      const maxTime = sortedCandles[sortedCandles.length - 1]?.time;
-      const validMarkers = markers
-        .filter((m) => m.time >= minTime && m.time <= maxTime)
-        .sort((a, b) => a.time - b.time)
-        .filter((m, idx, arr) => idx === 0 || m.time !== arr[idx - 1].time);
-
-      if (markersPrimitiveRef.current) {
-        try {
-          markersPrimitiveRef.current.setMarkers(validMarkers);
-        } catch (_) {
-          try {
-            markersPrimitiveRef.current.detach();
-          } catch (_) {}
-          markersPrimitiveRef.current = null;
-        }
-      }
-      if (!markersPrimitiveRef.current && validMarkers.length > 0 && typeof createSeriesMarkers === 'function') {
-        try {
-          markersPrimitiveRef.current = createSeriesMarkers(candleSeries, validMarkers);
-        } catch (markerErr) {
-          console.warn('createSeriesMarkers warning:', markerErr);
-        }
-      }
-    } else {
-      if (markersPrimitiveRef.current) {
-        try {
-          markersPrimitiveRef.current.setMarkers([]);
-        } catch (_) {}
-      }
-    }
   }, [
     candles, 
     anchorData, 
     pressureData, 
     indicators, 
-    zones, 
-    signals, 
-    liveSignal, 
     orderFlow, 
-    showSignals,
     showAnchor, 
     showBollinger, 
     showBBMA,
-    showZones, 
-    showImbalances, 
     showAbsBubbles,
     showBarDelta,
     showVolumeProfile,
     deltaMap,
     bubbleFilter,
-    showTargets, 
+    subPane,
     symbol, 
     timeframe
   ]);
@@ -1022,27 +862,6 @@ export default function TradingViewChart({
 
         {/* Dynamic Indicator Toggles (Clickable) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          {/* Toggle: Signals */}
-          <button
-            onClick={() => setShowSignals(!showSignals)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              padding: '4px 10px',
-              borderRadius: '6px',
-              fontSize: '0.72rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              border: showSignals ? '1px solid #10B981' : '1px solid rgba(255,255,255,0.1)',
-              background: showSignals ? 'rgba(16, 185, 129, 0.15)' : 'transparent',
-              color: showSignals ? '#34D399' : 'var(--text-dim)',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            ⚡ Signals {signals?.length ? `(${signals.length})` : ''}
-          </button>
-
           {/* Toggle: Anchor EMA */}
           <button
             onClick={() => setShowAnchor(!showAnchor)}
@@ -1136,29 +955,6 @@ export default function TradingViewChart({
               </button>
             ))}
           </div>
-
-          {/* Toggle: Imbalance Zones (Order Flow) */}
-          {orderFlow?.imbalance_zones?.length > 0 && (
-            <button
-              onClick={() => setShowImbalances(!showImbalances)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '4px 10px',
-                borderRadius: '6px',
-                fontSize: '0.72rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                border: showImbalances ? '1px solid #F97316' : '1px solid rgba(255,255,255,0.1)',
-                background: showImbalances ? 'rgba(249, 115, 22, 0.15)' : 'transparent',
-                color: showImbalances ? '#FB923C' : 'var(--text-dim)',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              🔥 Imbalances ({orderFlow.imbalance_zones.length})
-            </button>
-          )}
 
           {/* Toggle: Absorption Bubbles (High Buyer / High Seller) */}
           {(orderFlow?.absorption_bubbles?.length > 0 || orderFlow?.absorption_zones?.length > 0) && (
@@ -1258,47 +1054,6 @@ export default function TradingViewChart({
             </button>
           )}
 
-          {/* Toggle: Zones (OB + FVG) */}
-          <button
-            onClick={() => setShowZones(!showZones)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              padding: '4px 10px',
-              borderRadius: '6px',
-              fontSize: '0.72rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              border: showZones ? '1px solid #6366F1' : '1px solid rgba(255,255,255,0.1)',
-              background: showZones ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
-              color: showZones ? '#A5B4FC' : 'var(--text-dim)',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            🎯 SMC Zones ({zones.length})
-          </button>
-
-          {/* Toggle: SL / TP Targets */}
-          <button
-            onClick={() => setShowTargets(!showTargets)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              padding: '4px 10px',
-              borderRadius: '6px',
-              fontSize: '0.72rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              border: showTargets ? '1px solid #34D399' : '1px solid rgba(255,255,255,0.1)',
-              background: showTargets ? 'rgba(52, 211, 153, 0.15)' : 'transparent',
-              color: showTargets ? '#34D399' : 'var(--text-dim)',
-              transition: 'all 0.15s ease'
-            }}
-          >
-            📍 SL / TP Lines
-          </button>
         </div>
       </div>
 

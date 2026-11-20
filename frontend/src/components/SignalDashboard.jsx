@@ -30,12 +30,41 @@ export const REFRESH_INTERVALS = [
 export default function SignalDashboard({ token }) {
   const [selectedSymbol, setSelectedSymbol] = useState("XAUUSD");
   const [selectedTf, setSelectedTf] = useState("M15");
-  const [loading, setLoading] = useState(false);
-  const [signalsData, setSignalsData] = useState(null);
-  const [watchlist, setWatchlist] = useState([]);
-  const [scanning, setScanning] = useState(false);
+  const [snapshotData, setSnapshotData] = useState(null);
+  const [candles, setCandles] = useState([]);
   const [error, setError] = useState(null);
   const [orderFlow, setOrderFlow] = useState(null);
+
+  // Track latest candle timestamps for delta/incremental polling
+  const lastCandleTimeRef = useRef(null);
+  const lastOrderFlowTimeRef = useRef(null);
+
+  // Helper to merge time-series arrays in place by timestamp
+  const mergeSeriesByTime = (existing = [], incoming = [], maxItems = 500) => {
+    if (!incoming || incoming.length === 0) return existing;
+    if (!existing || existing.length === 0) return incoming;
+    const map = new Map();
+    existing.forEach(item => map.set(item.time, item));
+    incoming.forEach(item => map.set(item.time, item));
+    return Array.from(map.values())
+      .sort((a, b) => a.time - b.time)
+      .slice(-maxItems);
+  };
+
+  // Helper to merge indicator series dictionary preserving full historical series
+  const mergeIndicators = (existing = {}, incoming = {}, maxItems = 300) => {
+    if (!incoming || Object.keys(incoming).length === 0) return existing;
+    if (!existing || Object.keys(existing).length === 0) return incoming;
+    const merged = { ...existing };
+    for (const [key, val] of Object.entries(incoming)) {
+      if (Array.isArray(val)) {
+        merged[key] = mergeSeriesByTime(existing[key] || [], val, maxItems);
+      } else {
+        merged[key] = val;
+      }
+    }
+    return merged;
+  };
 
   // Configurable live chart refresh interval (persisted in localStorage, default 1s)
   const [refreshInterval, setRefreshInterval] = useState(() => {
@@ -73,25 +102,67 @@ export default function SignalDashboard({ token }) {
     try {
       localStorage.setItem('mai_orderflow_limit', val.toString());
     } catch (_) {}
-    fetchOrderFlow(selectedTf, val);
+    lastOrderFlowTimeRef.current = null;
+    fetchOrderFlow(selectedTf, val, false);
   };
 
   // In-flight request guards to avoid network contention on 1s intervals
-  const isFetchingSignalsRef = useRef(false);
+  const isFetchingCandlesRef = useRef(false);
   const isFetchingOrderFlowRef = useRef(false);
+  const isFetchingSnapshotRef = useRef(false);
 
-  const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
+  // Fetch base OHLCV candles (fast, lightweight, public)
+  const fetchCandles = async (symbol = selectedSymbol, tf = selectedTf, isPoll = false) => {
+    if (isFetchingCandlesRef.current) return;
+    isFetchingCandlesRef.current = true;
+    try {
+      const sinceParam = isPoll && lastCandleTimeRef.current ? `&since=${lastCandleTimeRef.current}` : '&full=true';
+      const res = await fetch(`${API_BASE}/strategy/candles?symbol=${symbol}&timeframe=${tf}&limit=200${sinceParam}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.candles && data.candles.length > 0) {
+          setCandles(prev => (isPoll && prev.length > 0) ? mergeSeriesByTime(prev, data.candles, 300) : data.candles);
+          lastCandleTimeRef.current = data.latest_candle_time || data.candles[data.candles.length - 1].time;
+        }
+      }
+    } catch (err) {
+      console.warn('[Candles] fetch error:', err);
+    } finally {
+      isFetchingCandlesRef.current = false;
+    }
+  };
 
-  // Fetch CoinGlass order flow footprint data (for local testing)
-  // NOTE: /orderflow is a PUBLIC endpoint — no auth headers needed
-  const fetchOrderFlow = async (tf = selectedTf, limit = orderFlowLimit) => {
+  // Fetch CoinGlass order flow footprint data (supports incremental 1-candle polling)
+  const fetchOrderFlow = async (tf = selectedTf, limit = orderFlowLimit, isPoll = false) => {
     if (isFetchingOrderFlowRef.current) return;
     isFetchingOrderFlowRef.current = true;
     try {
-      const res = await fetch(`${API_BASE}/strategy/orderflow?timeframe=${tf}&limit=${limit}`);
+      const sinceParam = isPoll && lastOrderFlowTimeRef.current ? `&since=${lastOrderFlowTimeRef.current}` : '&full=true';
+      const res = await fetch(`${API_BASE}/strategy/orderflow?timeframe=${tf}&limit=${limit}${sinceParam}`);
       if (res.ok) {
         const data = await res.json();
-        setOrderFlow(data);
+        if (data.incremental) {
+          setOrderFlow(prev => {
+            if (!prev) return data;
+            return {
+              ...prev,
+              live: data.live || prev.live,
+              latest_candle_time: data.latest_candle_time || prev.latest_candle_time,
+              delta_series: mergeSeriesByTime(prev.delta_series, data.delta_series, limit),
+              summary: mergeSeriesByTime(prev.summary, data.summary, limit),
+              absorption_series: mergeSeriesByTime(prev.absorption_series, data.absorption_series, limit),
+              absorption_bubbles: (data.absorption_bubbles && data.absorption_bubbles.length > 0)
+                ? data.absorption_bubbles
+                : prev.absorption_bubbles,
+              volume_profile: data.volume_profile || prev.volume_profile,
+            };
+          });
+        } else {
+          setOrderFlow(data);
+        }
+        if (data.latest_candle_time) {
+          lastOrderFlowTimeRef.current = data.latest_candle_time;
+        }
       }
     } catch (err) {
       console.warn('[OrderFlow] fetch error:', err);
@@ -100,74 +171,62 @@ export default function SignalDashboard({ token }) {
     }
   };
 
-  // Fetch signals for selected symbol & timeframe
-  const fetchSignals = async (symbol = selectedSymbol, tf = selectedTf, isBackground = false) => {
-    if (isFetchingSignalsRef.current) return;
-    isFetchingSignalsRef.current = true;
-    if (!isBackground) setLoading(true);
-    if (!isBackground) setError(null);
-
+  // Fetch Live Snapshot (anchor, pressure, bbma, confluence) for the Live Snapshot card
+  const fetchSnapshot = async (symbol = selectedSymbol, tf = selectedTf, isPoll = false) => {
+    if (isFetchingSnapshotRef.current) return;
+    isFetchingSnapshotRef.current = true;
     try {
-      const res = await fetch(`${API_BASE}/strategy/signals?symbol=${symbol}&timeframe=${tf}&limit=20`, {
-        headers: authHeaders
-      });
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || `Failed to fetch signals (${res.status})`);
-      }
-      const data = await res.json();
-      setSignalsData(data);
-    } catch (err) {
-      if (!isBackground) {
-        console.error("Signal fetch error:", err);
-        setError(err.message);
-      }
-    } finally {
-      if (!isBackground) setLoading(false);
-      isFetchingSignalsRef.current = false;
-    }
-  };
-
-  // Scan all pairs across watchlist
-  const scanAll = async (tf = selectedTf) => {
-    setScanning(true);
-    try {
-      const res = await fetch(`${API_BASE}/strategy/scan?timeframe=${tf}`, {
-        headers: authHeaders
-      });
+      const sinceParam = isPoll && lastCandleTimeRef.current ? `&since=${lastCandleTimeRef.current}` : '&full=true';
+      const res = await fetch(`${API_BASE}/strategy/snapshot?symbol=${symbol}&timeframe=${tf}${sinceParam}`);
       if (res.ok) {
         const data = await res.json();
-        setWatchlist(data.results || []);
+        if (data.incremental) {
+          setSnapshotData(prev => {
+            if (!prev) return data;
+            return {
+              ...prev,
+              live: data.live || prev.live,
+              candles: mergeSeriesByTime(prev.candles, data.candles, 300),
+              anchor_data: mergeSeriesByTime(prev.anchor_data, data.anchor_data, 300),
+              pressure_data: mergeSeriesByTime(prev.pressure_data, data.pressure_data, 300),
+              indicators: mergeIndicators(prev.indicators, data.indicators, 300),
+            };
+          });
+        } else {
+          setSnapshotData(data);
+        }
       }
     } catch (err) {
-      console.error("Scan error:", err);
+      console.warn('[Snapshot] fetch error:', err);
     } finally {
-      setScanning(false);
+      isFetchingSnapshotRef.current = false;
     }
   };
 
   useEffect(() => {
-    fetchSignals(selectedSymbol, selectedTf, false);
-    fetchOrderFlow(selectedTf, orderFlowLimit);
+    lastCandleTimeRef.current = null;
+    lastOrderFlowTimeRef.current = null;
+
+    // Fetch base chart candles, order flow, and live snapshot
+    fetchCandles(selectedSymbol, selectedTf, false);
+    fetchOrderFlow(selectedTf, orderFlowLimit, false);
+    fetchSnapshot(selectedSymbol, selectedTf, false);
 
     // If paused (0), don't start the auto-refresh interval
     if (refreshInterval <= 0) return;
 
-    // Configurable auto-refresh chart & signals from backend
+    // Configurable auto-refresh chart & snapshot from backend
     const timer = setInterval(() => {
-      fetchSignals(selectedSymbol, selectedTf, true);
-      fetchOrderFlow(selectedTf, orderFlowLimit);
+      fetchCandles(selectedSymbol, selectedTf, true);
+      fetchOrderFlow(selectedTf, orderFlowLimit, true);
+      fetchSnapshot(selectedSymbol, selectedTf, true);
     }, refreshInterval);
 
     return () => clearInterval(timer);
   }, [selectedSymbol, selectedTf, refreshInterval, orderFlowLimit]);
 
-  useEffect(() => {
-    scanAll(selectedTf);
-  }, [selectedTf]);
-
-  const live = signalsData?.live;
-  const signals = signalsData?.signals || [];
+  const live = snapshotData?.live;
+  const signals = [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', paddingBottom: '40px' }} className="animate-fade-in">
@@ -305,8 +364,7 @@ export default function SignalDashboard({ token }) {
 
           {/* Refresh Action */}
           <button
-            onClick={() => { fetchSignals(); fetchOrderFlow(); scanAll(); }}
-            disabled={loading || scanning}
+            onClick={() => { fetchCandles(selectedSymbol, selectedTf, false); fetchSnapshot(selectedSymbol, selectedTf, false); fetchOrderFlow(selectedTf, orderFlowLimit, false); }}
             className="btn-secondary"
             style={{
               display: 'flex',
@@ -316,8 +374,8 @@ export default function SignalDashboard({ token }) {
               fontSize: '0.78rem'
             }}
           >
-            <RefreshCw size={14} className={loading || scanning ? 'animate-spin' : ''} />
-            <span>Scan</span>
+            <RefreshCw size={14} />
+            <span>Refresh</span>
           </button>
         </div>
       </div>
@@ -360,47 +418,6 @@ export default function SignalDashboard({ token }) {
                   <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#FFFFFF', marginTop: '2px' }}>
                     ${live.current_price?.toLocaleString()}
                   </div>
-                </div>
-
-                {/* Big Signal Status */}
-                <div style={{
-                  padding: '8px 18px',
-                  borderRadius: '12px',
-                  background: live.signal === 'BUY'
-                    ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(5, 150, 105, 0.4) 100%)'
-                    : live.signal === 'SELL'
-                      ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.25) 0%, rgba(185, 28, 28, 0.4) 100%)'
-                      : 'rgba(255, 255, 255, 0.05)',
-                  border: live.signal === 'BUY'
-                    ? '1px solid #10B981'
-                    : live.signal === 'SELL'
-                      ? '1px solid #EF4444'
-                      : '1px solid rgba(255,255,255,0.1)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}>
-                  {live.signal === 'BUY' ? <TrendingUp size={20} color="#34D399" /> : live.signal === 'SELL' ? <TrendingDown size={20} color="#F87171" /> : <Clock size={20} color="var(--text-muted)" />}
-                  <span style={{
-                    fontSize: '1.1rem',
-                    fontWeight: 800,
-                    color: live.signal === 'BUY' ? '#34D399' : live.signal === 'SELL' ? '#F87171' : 'var(--text-muted)'
-                  }}>
-                    {live.signal === 'WAIT' ? 'NO ACTIVE SETUP' : `${live.signal} SETUP`}
-                  </span>
-                  {live.quality_grade && live.quality_grade !== 'NONE' && live.signal !== 'WAIT' && (
-                    <span style={{
-                      fontSize: '0.72rem',
-                      fontWeight: 800,
-                      padding: '2px 8px',
-                      borderRadius: '5px',
-                      background: live.quality_grade === 'A+ ELITE' ? 'rgba(245, 158, 11, 0.25)' : 'rgba(99, 102, 241, 0.25)',
-                      color: live.quality_grade === 'A+ ELITE' ? '#FBBF24' : '#A5B4FC',
-                      border: live.quality_grade === 'A+ ELITE' ? '1px solid #F59E0B' : '1px solid rgba(99, 102, 241, 0.4)',
-                    }}>
-                      ★ {live.quality_grade}
-                    </span>
-                  )}
                 </div>
               </div>
 
@@ -483,22 +500,6 @@ export default function SignalDashboard({ token }) {
                   </div>
                 </div>
 
-                {/* Metric 4: Zones in Range */}
-                <div style={{
-                  background: 'rgba(255, 255, 255, 0.02)',
-                  border: '1px solid rgba(255, 255, 255, 0.05)',
-                  borderRadius: '10px',
-                  padding: '12px'
-                }}>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Mapped Zones</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#A5B4FC' }}>
-                    {live.ob_zones + live.fvg_zones} Total
-                  </div>
-                  <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)' }}>
-                    {live.ob_zones} OBs · {live.fvg_zones} FVGs
-                  </div>
-                </div>
-
                 {/* Metric 5: CoinGlass Real Order Flow (Test) */}
                 {orderFlow?.live && (
                   <div style={{
@@ -527,7 +528,6 @@ export default function SignalDashboard({ token }) {
                       <div>Buy Vol: <strong style={{ color: '#34D399' }}>{orderFlow.live.buy_vol}</strong> ({orderFlow.live.buy_trades} trades)</div>
                       <div>Sell Vol: <strong style={{ color: '#F87171' }}>{orderFlow.live.sell_vol}</strong> ({orderFlow.live.sell_trades} trades)</div>
                       <div>Total: <strong style={{ color: '#FFFFFF' }}>{orderFlow.live.total_vol}</strong></div>
-                      <div>Imbalance Zones: <strong style={{ color: '#FBBF24' }}>{orderFlow.imbalance_zones?.length || 0} active</strong></div>
                     </div>
                     {orderFlow?.live?.absorption_intensity !== undefined && (
                       <div style={{ marginTop: '8px', fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
@@ -549,44 +549,6 @@ export default function SignalDashboard({ token }) {
                 )}
 
               </div>
-
-              {/* SL / TP Target Box when signal is active */}
-              {live.signal !== 'WAIT' && (
-                <div style={{
-                  background: 'rgba(99, 102, 241, 0.08)',
-                  border: '1px dashed rgba(99, 102, 241, 0.3)',
-                  borderRadius: '12px',
-                  padding: '14px 18px',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
-                }}>
-                  <div>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Entry Price</span>
-                    <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#FFFFFF' }}>
-                      ${live.entry_price?.toLocaleString()}
-                    </div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '0.72rem', color: '#F87171' }}>Stop Loss (Zone Invalidation)</span>
-                    <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#F87171' }}>
-                      ${live.stop_loss?.toLocaleString()}
-                    </div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '0.72rem', color: '#34D399' }}>Take Profit (1.272 Fib)</span>
-                    <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#34D399' }}>
-                      ${live.take_profit?.toLocaleString()}
-                    </div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '0.72rem', color: '#FBBF24' }}>Risk : Reward</span>
-                    <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#FBBF24' }}>
-                      1 : {live.risk_reward}
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -606,18 +568,15 @@ export default function SignalDashboard({ token }) {
                 Live Self-Hosted Candlestick Chart
               </span>
               <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                {signalsData?.candles?.length || 0} bars · Scroll to zoom · Drag to pan
+                {(snapshotData?.candles?.length || candles.length)} bars · Scroll to zoom · Drag to pan
               </span>
             </div>
 
             <TradingViewChart
-              candles={signalsData?.candles || []}
-              anchorData={signalsData?.anchor_data || []}
-              pressureData={signalsData?.pressure_data || []}
-              indicators={signalsData?.indicators || {}}
-              zones={signalsData?.zones || []}
-              signals={signals}
-              liveSignal={live}
+              candles={snapshotData?.candles?.length ? snapshotData.candles : candles}
+              anchorData={snapshotData?.anchor_data || []}
+              pressureData={snapshotData?.pressure_data || []}
+              indicators={snapshotData?.indicators || {}}
               orderFlow={orderFlow}
               symbol={selectedSymbol}
               timeframe={selectedTf}
@@ -627,88 +586,6 @@ export default function SignalDashboard({ token }) {
               orderFlowLimit={orderFlowLimit}
               onOrderFlowLimitChange={handleOrderFlowLimitChange}
             />
-          </div>
-
-          {/* Historical Signal Audit Table */}
-          <div style={{
-            background: 'rgba(15, 23, 42, 0.6)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: '16px',
-            padding: '20px'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FFFFFF' }}>
-                Recent Strategy Trigger History ({selectedSymbol})
-              </span>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                {signals.length} recorded signals
-              </span>
-            </div>
-
-            {signals.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-                No recent signals detected for {selectedSymbol} with score ≥ 2 and pressure ≥ 25%.
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.08)', color: 'var(--text-dim)', textAlign: 'left' }}>
-                      <th style={{ padding: '8px 10px' }}>Type</th>
-                      <th style={{ padding: '8px 10px' }}>Time (UTC)</th>
-                      <th style={{ padding: '8px 10px' }}>Entry</th>
-                      <th style={{ padding: '8px 10px' }}>Stop Loss</th>
-                      <th style={{ padding: '8px 10px' }}>Take Profit</th>
-                      <th style={{ padding: '8px 10px' }}>R : R</th>
-                      <th style={{ padding: '8px 10px' }}>Score</th>
-                      <th style={{ padding: '8px 10px' }}>Pressure</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {signals.map((sig, idx) => {
-                      const isBuy = sig.signal === 'BUY';
-                      return (
-                        <tr key={idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.04)' }}>
-                          <td style={{ padding: '10px' }}>
-                            <span style={{
-                              background: isBuy ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                              color: isBuy ? '#34D399' : '#F87171',
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              fontWeight: 800,
-                              fontSize: '0.72rem'
-                            }}>
-                              {sig.signal}
-                            </span>
-                          </td>
-                          <td style={{ padding: '10px', color: 'var(--text-muted)' }}>
-                            {new Date(sig.time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                          </td>
-                          <td style={{ padding: '10px', fontWeight: 600, color: '#FFFFFF' }}>
-                            ${sig.entry_price?.toLocaleString()}
-                          </td>
-                          <td style={{ padding: '10px', color: '#F87171' }}>
-                            ${sig.stop_loss?.toLocaleString()}
-                          </td>
-                          <td style={{ padding: '10px', color: '#34D399' }}>
-                            ${sig.take_profit?.toLocaleString()}
-                          </td>
-                          <td style={{ padding: '10px', fontWeight: 700, color: '#FBBF24' }}>
-                            1 : {sig.risk_reward}
-                          </td>
-                          <td style={{ padding: '10px', fontWeight: 700, color: '#F59E0B' }}>
-                            {sig.confluence_score}✦
-                          </td>
-                          <td style={{ padding: '10px', color: sig.pressure_bias >= 0 ? '#34D399' : '#F87171' }}>
-                            {(sig.pressure_bias * 100).toFixed(0)}%
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
 
         </div>

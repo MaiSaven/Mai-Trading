@@ -12,10 +12,14 @@ from __future__ import annotations
 import logging
 import urllib.request
 import json
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Server-side cache: interval -> {"timestamp": float, "candles": list[dict]}
+_ORDER_FLOW_CACHE: dict[str, dict] = {}
 
 COINGLASS_URL = (
     "https://capi.coinglass.com/api/orderFlow"
@@ -41,29 +45,27 @@ IMBALANCE_RATIO = 3.0   # price level considered imbalanced when buy:sell >= 3x 
 def fetch_order_flow(timeframe: str = "M15", limit: int = 50) -> list[dict] | None:
     """
     Fetch order-flow footprint data from CoinGlass.
-    Returns a list of candle dicts, newest last:
-      {
-        time          : int (Unix timestamp seconds),
-        buy_vol       : float,
-        sell_vol      : float,
-        delta         : float,          # buy_vol - sell_vol
-        delta_pct     : float,          # delta / (buy_vol + sell_vol) in [-1, 1]
-        total_vol     : float,
-        buy_trades    : int,
-        sell_trades   : int,
-        price_levels  : list[dict],     # all price-level rows
-        imbalances    : list[dict],     # only strongly imbalanced price levels
-      }
-    Returns None on error.
+    Uses in-memory cache to only fetch head candles (limit=3) on subsequent polls,
+    saving bandwidth and avoiding CoinGlass rate limits.
+    Returns a list of candle dicts, newest last.
     """
     interval = INTERVAL_MAP.get(timeframe.upper(), "m15")
-    url = COINGLASS_URL.format(interval=interval, limit=limit)
+
+    cached_entry = _ORDER_FLOW_CACHE.get(interval)
+    cached_candles = cached_entry.get("candles", []) if cached_entry else []
+    now = time.time()
+
+    # If cache already has enough historical candles and is fresh (<120s), fetch only the last 3 candles
+    is_head_poll = bool(cached_candles and len(cached_candles) >= limit and (now - cached_entry.get("timestamp", 0) < 120.0))
+    fetch_limit = 3 if is_head_poll else limit
+
+    url = COINGLASS_URL.format(interval=interval, limit=fetch_limit)
 
     try:
         req = urllib.request.Request(
             url,
             headers={
-                "User-Agent": "Mozilla/5.0 (compatible; MAI-Trading/1.0)",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 "Accept": "application/json",
             },
         )
@@ -72,12 +74,14 @@ def fetch_order_flow(timeframe: str = "M15", limit: int = 50) -> list[dict] | No
 
         if payload.get("code") != "0" or not payload.get("data"):
             logger.warning(f"CoinGlass order flow returned unexpected: {payload.get('msg')}")
+            if cached_candles:
+                return cached_candles[-limit:]
             return None
 
         candles = []
         for entry in payload["data"]:
             ts: int = entry[0]
-            rows: list = entry[1]
+            rows: list = entry[1] or []
 
             buy_vol   = sum(r[2] for r in rows)
             sell_vol  = sum(r[3] for r in rows)
@@ -149,13 +153,25 @@ def fetch_order_flow(timeframe: str = "M15", limit: int = 50) -> list[dict] | No
                 "imbalances":   imbalances,
             })
 
+        # Merge with cached candles if head poll
+        if is_head_poll and cached_candles:
+            time_map = {c["time"]: c for c in cached_candles}
+            for c in candles:
+                time_map[c["time"]] = c
+            merged = sorted(time_map.values(), key=lambda c: c["time"])
+            _ORDER_FLOW_CACHE[interval] = {"timestamp": now, "candles": merged}
+            return merged[-limit:]
+
         # Sort oldest → newest
         candles.sort(key=lambda c: c["time"])
+        _ORDER_FLOW_CACHE[interval] = {"timestamp": now, "candles": candles}
         logger.info(f"[OrderFlow] Fetched {len(candles)} candles ({timeframe}) from CoinGlass")
-        return candles
+        return candles[-limit:]
 
     except Exception as e:
         logger.warning(f"[OrderFlow] Fetch error: {e}")
+        if cached_candles:
+            return cached_candles[-limit:]
         return None
 
 
