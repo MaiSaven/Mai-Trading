@@ -19,6 +19,14 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api/v1";
 
 const TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"];
 
+export const REFRESH_INTERVALS = [
+  { label: '⚡ 1s', value: 1000 },
+  { label: '3s', value: 3000 },
+  { label: '5s', value: 5000 },
+  { label: '10s', value: 10000 },
+  { label: '⏸ Pause', value: 0 },
+];
+
 export default function SignalDashboard({ token }) {
   const [selectedSymbol, setSelectedSymbol] = useState("XAUUSD");
   const [selectedTf, setSelectedTf] = useState("M15");
@@ -29,7 +37,46 @@ export default function SignalDashboard({ token }) {
   const [error, setError] = useState(null);
   const [orderFlow, setOrderFlow] = useState(null);
 
-  // In-flight request guards to avoid network contention on 3s intervals
+  // Configurable live chart refresh interval (persisted in localStorage, default 1s)
+  const [refreshInterval, setRefreshInterval] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mai_chart_refresh_interval');
+      if (saved !== null) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed)) return parsed;
+      }
+    } catch (_) {}
+    return 1000;
+  });
+
+  const handleRefreshIntervalChange = (val) => {
+    setRefreshInterval(val);
+    try {
+      localStorage.setItem('mai_chart_refresh_interval', val.toString());
+    } catch (_) {}
+  };
+
+  // Configurable order flow candle limit (default 50, flexible over 50: 50, 100, 150, 200)
+  const [orderFlowLimit, setOrderFlowLimit] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mai_orderflow_limit');
+      if (saved !== null) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 10) return parsed;
+      }
+    } catch (_) {}
+    return 50;
+  });
+
+  const handleOrderFlowLimitChange = (val) => {
+    setOrderFlowLimit(val);
+    try {
+      localStorage.setItem('mai_orderflow_limit', val.toString());
+    } catch (_) {}
+    fetchOrderFlow(selectedTf, val);
+  };
+
+  // In-flight request guards to avoid network contention on 1s intervals
   const isFetchingSignalsRef = useRef(false);
   const isFetchingOrderFlowRef = useRef(false);
 
@@ -37,11 +84,11 @@ export default function SignalDashboard({ token }) {
 
   // Fetch CoinGlass order flow footprint data (for local testing)
   // NOTE: /orderflow is a PUBLIC endpoint — no auth headers needed
-  const fetchOrderFlow = async (tf = selectedTf) => {
+  const fetchOrderFlow = async (tf = selectedTf, limit = orderFlowLimit) => {
     if (isFetchingOrderFlowRef.current) return;
     isFetchingOrderFlowRef.current = true;
     try {
-      const res = await fetch(`${API_BASE}/strategy/orderflow?timeframe=${tf}&limit=50`);
+      const res = await fetch(`${API_BASE}/strategy/orderflow?timeframe=${tf}&limit=${limit}`);
       if (res.ok) {
         const data = await res.json();
         setOrderFlow(data);
@@ -101,16 +148,19 @@ export default function SignalDashboard({ token }) {
 
   useEffect(() => {
     fetchSignals(selectedSymbol, selectedTf, false);
-    fetchOrderFlow(selectedTf);
+    fetchOrderFlow(selectedTf, orderFlowLimit);
 
-    // Auto-refresh chart & signals from backend every 3s (smooth, continuous candle stream)
+    // If paused (0), don't start the auto-refresh interval
+    if (refreshInterval <= 0) return;
+
+    // Configurable auto-refresh chart & signals from backend
     const timer = setInterval(() => {
       fetchSignals(selectedSymbol, selectedTf, true);
-      fetchOrderFlow(selectedTf);
-    }, 3000);
+      fetchOrderFlow(selectedTf, orderFlowLimit);
+    }, refreshInterval);
 
     return () => clearInterval(timer);
-  }, [selectedSymbol, selectedTf]);
+  }, [selectedSymbol, selectedTf, refreshInterval, orderFlowLimit]);
 
   useEffect(() => {
     scanAll(selectedTf);
@@ -200,6 +250,55 @@ export default function SignalDashboard({ token }) {
                 }}
               >
                 {tf}
+              </button>
+            ))}
+          </div>
+
+          {/* Configurable Auto-Refresh Interval Selector */}
+          <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '3px', gap: '2px' }}>
+            {REFRESH_INTERVALS.map((intv) => (
+              <button
+                key={intv.value}
+                onClick={() => handleRefreshIntervalChange(intv.value)}
+                title={intv.value === 0 ? "Pause auto-refresh" : `Auto-refresh chart every ${intv.label}`}
+                style={{
+                  background: refreshInterval === intv.value ? 'rgba(16, 185, 129, 0.25)' : 'transparent',
+                  color: refreshInterval === intv.value ? '#34D399' : 'var(--text-dim)',
+                  border: refreshInterval === intv.value ? '1px solid rgba(16, 185, 129, 0.45)' : '1px solid transparent',
+                  padding: '5px 8px',
+                  borderRadius: '6px',
+                  fontSize: '0.72rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                {intv.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Configurable Order Flow Lookback Limit Selector */}
+          <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '3px', gap: '2px' }}>
+            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', padding: '0 4px', fontWeight: 600 }}>OF:</span>
+            {[50, 100, 150, 200].map((cnt) => (
+              <button
+                key={cnt}
+                onClick={() => handleOrderFlowLimitChange(cnt)}
+                title={`Fetch last ${cnt} order flow candles from CoinGlass`}
+                style={{
+                  background: orderFlowLimit === cnt ? 'rgba(56, 189, 248, 0.25)' : 'transparent',
+                  color: orderFlowLimit === cnt ? '#38BDF8' : 'var(--text-dim)',
+                  border: orderFlowLimit === cnt ? '1px solid rgba(56, 189, 248, 0.45)' : '1px solid transparent',
+                  padding: '5px 8px',
+                  borderRadius: '6px',
+                  fontSize: '0.72rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                {cnt}
               </button>
             ))}
           </div>
@@ -523,6 +622,10 @@ export default function SignalDashboard({ token }) {
               symbol={selectedSymbol}
               timeframe={selectedTf}
               height={520}
+              refreshInterval={refreshInterval}
+              onRefreshIntervalChange={handleRefreshIntervalChange}
+              orderFlowLimit={orderFlowLimit}
+              onOrderFlowLimitChange={handleOrderFlowLimitChange}
             />
           </div>
 

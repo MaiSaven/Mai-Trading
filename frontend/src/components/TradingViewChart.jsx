@@ -9,6 +9,7 @@ import {
 } from 'lightweight-charts';
 import { AbsorptionBubblesPrimitive } from './AbsorptionBubblesPrimitive';
 import { BarDeltaPrimitive } from './BarDeltaPrimitive';
+import { VolumeProfilePrimitive } from './VolumeProfilePrimitive';
 
 // Helper to sort and deduplicate series data by timestamp
 const sanitizeData = (arr) => {
@@ -29,7 +30,11 @@ export default function TradingViewChart({
   orderFlow = null,     // { delta_series, imbalance_zones, live }
   symbol = 'XAUUSD',
   timeframe = 'M15',
-  height = 560
+  height = 560,
+  refreshInterval = 1000,
+  onRefreshIntervalChange = null,
+  orderFlowLimit = 50,
+  onOrderFlowLimitChange = null
 }) {
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
@@ -51,6 +56,7 @@ export default function TradingViewChart({
   const markersPrimitiveRef = useRef(null);
   const absBubblesPrimitiveRef = useRef(null); // Canvas primitive for footprint bubbles
   const barDeltaPrimitiveRef = useRef(null); // Canvas primitive for bar delta numbers
+  const volumeProfilePrimitiveRef = useRef(null); // Canvas primitive for volume profile
 
   // Track hovered candle from crosshair for dynamic delta inspection
   const [hoverInfo, setHoverInfo] = useState(null);
@@ -60,9 +66,8 @@ export default function TradingViewChart({
   const prevSymbolTfRef = useRef(`${symbol}_${timeframe}`);
 
   // Indicator Visibility Toggles
-  // Signals ON by default so strategy buy/sell arrows are immediately visible
-  // Other heavy indicators remain OFF by default for a clean chart
-  const [showSignals, setShowSignals] = useState(true);
+  // All indicators and signals OFF by default for a clean chart
+  const [showSignals, setShowSignals] = useState(false);
   const [showAnchor, setShowAnchor] = useState(false);
   const [showBollinger, setShowBollinger] = useState(false);
   const [showBBMA, setShowBBMA] = useState(false);
@@ -73,6 +78,7 @@ export default function TradingViewChart({
   const [showBarDelta, setShowBarDelta] = useState(false);
   const [bubbleFilter, setBubbleFilter] = useState('ALL'); // 'ALL' | 'BUYER' | 'SELLER'
   const [showTargets, setShowTargets] = useState(false);
+  const [showVolumeProfile, setShowVolumeProfile] = useState(false);
 
   // Fast map of candle time -> delta metrics
   const deltaMap = React.useMemo(() => {
@@ -400,6 +406,54 @@ export default function TradingViewChart({
       if (orderFlow?.absorption_series?.length > 0) {
         absSeries.setData(sanitizeData(orderFlow.absorption_series));
       }
+    } else if (subPane === 'adx') {
+      const adxLine = chart.addSeries(LineSeries, {
+        color: '#FBBF24',
+        lineWidth: 2,
+        priceScaleId: 'sub_scale',
+        title: 'ADX(14)',
+        priceLineVisible: false,
+      });
+      const plusDiLine = chart.addSeries(LineSeries, {
+        color: '#10B981',
+        lineWidth: 1.5,
+        priceScaleId: 'sub_scale',
+        title: '+DI',
+        priceLineVisible: false,
+      });
+      const minusDiLine = chart.addSeries(LineSeries, {
+        color: '#EF4444',
+        lineWidth: 1.5,
+        priceScaleId: 'sub_scale',
+        title: '-DI',
+        priceLineVisible: false,
+      });
+      try {
+        chart.priceScale('sub_scale').applyOptions({
+          scaleMargins: { top: 0.78, bottom: 0.02 },
+          borderColor: 'rgba(255, 255, 255, 0.1)',
+        });
+        adxLine.createPriceLine({
+          price: 25,
+          color: 'rgba(251, 191, 36, 0.35)',
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: 'Trend 25',
+        });
+        adxLine.createPriceLine({
+          price: 40,
+          color: 'rgba(251, 191, 36, 0.60)',
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: 'Strong 40',
+        });
+      } catch (_) {}
+      subPaneRef.current.series = [adxLine, plusDiLine, minusDiLine];
+      if (indicators?.adx?.length > 0) adxLine.setData(sanitizeData(indicators.adx));
+      if (indicators?.plus_di?.length > 0) plusDiLine.setData(sanitizeData(indicators.plus_di));
+      if (indicators?.minus_di?.length > 0) minusDiLine.setData(sanitizeData(indicators.minus_di));
     }
   }, [subPane]);
 
@@ -602,6 +656,11 @@ export default function TradingViewChart({
       subPaneRef.current.series[0].setData(sanitizeData(orderFlow.delta_series));
     } else if (subPane === 'absorption' && subPaneRef.current.series[0] && orderFlow?.absorption_series?.length > 0) {
       subPaneRef.current.series[0].setData(sanitizeData(orderFlow.absorption_series));
+    } else if (subPane === 'adx' && subPaneRef.current.series.length === 3) {
+      const [adxLine, plusDiLine, minusDiLine] = subPaneRef.current.series;
+      if (indicators?.adx?.length > 0) adxLine.setData(sanitizeData(indicators.adx));
+      if (indicators?.plus_di?.length > 0) plusDiLine.setData(sanitizeData(indicators.plus_di));
+      if (indicators?.minus_di?.length > 0) minusDiLine.setData(sanitizeData(indicators.minus_di));
     }
 
     // E. Clear and re-apply Price Lines on Candlestick Series (Zones, Imbalances, SL/TP)
@@ -703,6 +762,31 @@ export default function TradingViewChart({
           }
         } catch (_) {}
         barDeltaPrimitiveRef.current = null;
+      }
+    }
+
+    // Volume Profile (VPVR-style histogram) — LWC v5 canvas primitive
+    if (showVolumeProfile && orderFlow?.volume_profile?.bins?.length > 0) {
+      if (!volumeProfilePrimitiveRef.current) {
+        try {
+          const prim = new VolumeProfilePrimitive();
+          candleSeries.attachPrimitive(prim);
+          volumeProfilePrimitiveRef.current = prim;
+        } catch (err) {
+          console.warn('VolumeProfilePrimitive attach error:', err);
+        }
+      }
+      if (volumeProfilePrimitiveRef.current) {
+        volumeProfilePrimitiveRef.current.setData(orderFlow.volume_profile);
+      }
+    } else {
+      if (volumeProfilePrimitiveRef.current) {
+        try {
+          if (typeof candleSeries.detachPrimitive === 'function') {
+            candleSeries.detachPrimitive(volumeProfilePrimitiveRef.current);
+          }
+        } catch (_) {}
+        volumeProfilePrimitiveRef.current = null;
       }
     }
 
@@ -838,6 +922,7 @@ export default function TradingViewChart({
     showImbalances, 
     showAbsBubbles,
     showBarDelta,
+    showVolumeProfile,
     deltaMap,
     bubbleFilter,
     showTargets, 
@@ -876,8 +961,63 @@ export default function TradingViewChart({
             {timeframe}
           </span>
           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Self-Hosted Live Streaming Feed (Real-Time 3s Updates)
+            Self-Hosted Feed ({refreshInterval > 0 ? `⚡ ${(refreshInterval / 1000).toFixed(0)}s Polling` : '⏸ Paused'})
           </span>
+          {onRefreshIntervalChange && (
+            <div style={{ display: 'flex', gap: '2px', background: 'rgba(0,0,0,0.3)', borderRadius: '6px', padding: '2px' }}>
+              {[
+                { label: '1s', val: 1000 },
+                { label: '3s', val: 3000 },
+                { label: '5s', val: 5000 },
+                { label: '10s', val: 10000 },
+                { label: '⏸', val: 0 }
+              ].map(opt => (
+                <button
+                  key={opt.val}
+                  onClick={() => onRefreshIntervalChange(opt.val)}
+                  title={opt.val === 0 ? "Pause live streaming" : `Refresh every ${opt.label}`}
+                  style={{
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    border: 'none',
+                    background: refreshInterval === opt.val ? 'rgba(16, 185, 129, 0.35)' : 'transparent',
+                    color: refreshInterval === opt.val ? '#34D399' : 'var(--text-dim)',
+                    transition: 'all 0.12s ease'
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {onOrderFlowLimitChange && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', background: 'rgba(0,0,0,0.3)', borderRadius: '6px', padding: '2px' }}>
+              <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)', padding: '0 4px', fontWeight: 600 }}>OF Bars:</span>
+              {[50, 100, 150, 200].map(cnt => (
+                <button
+                  key={cnt}
+                  onClick={() => onOrderFlowLimitChange(cnt)}
+                  title={`Fetch last ${cnt} order flow footprint candles`}
+                  style={{
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    border: 'none',
+                    background: orderFlowLimit === cnt ? 'rgba(56, 189, 248, 0.35)' : 'transparent',
+                    color: orderFlowLimit === cnt ? '#38BDF8' : 'var(--text-dim)',
+                    transition: 'all 0.12s ease'
+                  }}
+                >
+                  {cnt}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Dynamic Indicator Toggles (Clickable) */}
@@ -966,12 +1106,13 @@ export default function TradingViewChart({
             〰 BBMA Channel
           </button>
 
-          {/* Sub-Pane Selector (Pressure / RSI / MACD / Delta / Off) */}
+          {/* Sub-Pane Selector (Pressure / RSI / MACD / ADX / Delta / Off) */}
           <div style={{ display: 'flex', background: 'rgba(0,0,0,0.3)', borderRadius: '6px', padding: '2px' }}>
             {[
               { id: 'pressure', label: '📊 Pressure' },
               { id: 'rsi', label: '📈 RSI' },
               { id: 'macd', label: '📉 MACD' },
+              { id: 'adx', label: '⚡ ADX' },
               { id: 'delta', label: '⚡ Delta' },
               { id: 'absorption', label: '🫧 Abs Bubbles' },
               { id: 'none', label: 'Off' }
@@ -1091,6 +1232,29 @@ export default function TradingViewChart({
               }}
             >
               ⚡ Bar Delta ({deltaMap.size})
+            </button>
+          )}
+
+          {/* Toggle: Volume Profile (VPVR) */}
+          {orderFlow?.volume_profile?.bins?.length > 0 && (
+            <button
+              onClick={() => setShowVolumeProfile(!showVolumeProfile)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                fontSize: '0.72rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                border: showVolumeProfile ? '1px solid #FBBF24' : '1px solid rgba(255,255,255,0.1)',
+                background: showVolumeProfile ? 'rgba(251, 191, 36, 0.15)' : 'transparent',
+                color: showVolumeProfile ? '#FBBF24' : 'var(--text-dim)',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              📊 Volume Profile
             </button>
           )}
 

@@ -242,7 +242,7 @@ def get_absorption_bubbles(
     broker_offset_seconds: int = 7200,
     min_vol: float = ABSORPTION_BUBBLE_MIN_VOL,
     contest_ratio_thresh: float = ABSORPTION_BUBBLE_CONTEST_RATIO,
-    max_candles: int = 25,
+    max_candles: int | None = None,
 ) -> list[dict]:
     """
     Extract high-conviction Absorption Bubbles from CoinGlass footprint.
@@ -272,7 +272,8 @@ def get_absorption_bubbles(
     }]
     """
     bubbles = []
-    for c in candles[-max_candles:]:
+    subset = candles[-max_candles:] if (max_candles and max_candles > 0) else candles
+    for c in subset:
         c_time = c["time"] + broker_offset_seconds
         best_candidate = None
         best_vol = 0.0
@@ -335,16 +336,129 @@ def get_absorption_zones(candles: list[dict], broker_offset_seconds: int = 7200,
     return get_absorption_bubbles(candles, broker_offset_seconds=broker_offset_seconds, max_candles=max_candles)
 
 
-def get_all_imbalance_zones(candles: list[dict], broker_offset_seconds: int = 7200) -> list[dict]:
+def get_all_imbalance_zones(
+    candles: list[dict],
+    broker_offset_seconds: int = 7200,
+    max_candles: int | None = None,
+) -> list[dict]:
     """
     Flatten all per-candle imbalance zones into a single list,
     with their candle timestamp attached (offset to MT5 broker time).
-    Only keeps the last N candles worth of zones.
+    Keeps all zones or the last max_candles if specified.
     """
     zones = []
-    for c in candles[-20:]:  # only recent 20 candles
+    subset = candles[-max_candles:] if (max_candles and max_candles > 0) else candles
+    for c in subset:
         for z in c["imbalances"]:
             z["time"] = c["time"] + broker_offset_seconds  # align to MT5 broker UTC+2
             zones.append(z)
     return zones
+
+
+def get_volume_profile(
+    candles: list[dict],
+    num_bins: int = 35,
+    value_area_pct: float = 0.70,
+) -> dict | None:
+    """
+    Computes a High-Resolution Institutional Volume Profile (VPVR) from
+    CoinGlass order flow footprint price levels.
+
+    Returns:
+      {
+        "poc": float,          # Point of Control (peak traded volume price)
+        "poc_vol": float,      # Volume at POC
+        "vah": float,          # Value Area High (top of 70% volume range)
+        "val": float,          # Value Area Low (bottom of 70% volume range)
+        "total_volume": float, # Total volume across all price bins
+        "bins": [              # Price histogram buckets (bottom to top)
+          {
+            "price_low": float,
+            "price_high": float,
+            "price": float,
+            "buy_vol": float,
+            "sell_vol": float,
+            "total_vol": float,
+            "is_poc": bool,
+            "in_value_area": bool,
+          }, ...
+        ]
+      }
+    """
+    if not candles:
+        return None
+
+    all_pls = []
+    for c in candles:
+        for pl in c.get("price_levels", []):
+            all_pls.append(pl)
+
+    if not all_pls:
+        return None
+
+    min_p = min(pl["pl"] for pl in all_pls)
+    max_p = max(pl["ph"] for pl in all_pls)
+    if max_p <= min_p:
+        return None
+
+    bin_size = (max_p - min_p) / num_bins
+    if bin_size <= 0:
+        return None
+
+    bins = [
+        {
+            "price_low": round(min_p + i * bin_size, 2),
+            "price_high": round(min_p + (i + 1) * bin_size, 2),
+            "price": round(min_p + (i + 0.5) * bin_size, 2),
+            "buy_vol": 0.0,
+            "sell_vol": 0.0,
+            "total_vol": 0.0,
+        }
+        for i in range(num_bins)
+    ]
+
+    for pl in all_pls:
+        p_mid = (pl["pl"] + pl["ph"]) / 2.0
+        idx = int((p_mid - min_p) / bin_size)
+        idx = max(0, min(num_bins - 1, idx))
+        bins[idx]["buy_vol"] += pl["bv"]
+        bins[idx]["sell_vol"] += pl["sv"]
+        bins[idx]["total_vol"] += (pl["bv"] + pl["sv"])
+
+    total_market_vol = sum(b["total_vol"] for b in bins)
+    if total_market_vol <= 0:
+        return None
+
+    poc_bin = max(bins, key=lambda b: b["total_vol"])
+    poc_price = poc_bin["price"]
+
+    # Value Area calculation (70% standard)
+    sorted_bins = sorted(bins, key=lambda b: b["total_vol"], reverse=True)
+    accum = 0.0
+    va_target = total_market_vol * value_area_pct
+    va_bins = []
+    for b in sorted_bins:
+        accum += b["total_vol"]
+        va_bins.append(b)
+        if accum >= va_target:
+            break
+
+    vah = max(b["price_high"] for b in va_bins)
+    val = min(b["price_low"] for b in va_bins)
+
+    for b in bins:
+        b["is_poc"] = (b == poc_bin)
+        b["in_value_area"] = (b["price"] >= val and b["price"] <= vah)
+        b["buy_vol"] = round(b["buy_vol"], 1)
+        b["sell_vol"] = round(b["sell_vol"], 1)
+        b["total_vol"] = round(b["total_vol"], 1)
+
+    return {
+        "poc": round(poc_price, 2),
+        "poc_vol": round(poc_bin["total_vol"], 1),
+        "vah": round(vah, 2),
+        "val": round(val, 2),
+        "total_volume": round(total_market_vol, 1),
+        "bins": bins,
+    }
 

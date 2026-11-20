@@ -101,6 +101,7 @@ async def get_signals(
             "high": round(float(df_slice["high"].iloc[i]), 5),
             "low": round(float(df_slice["low"].iloc[i]), 5),
             "close": round(float(df_slice["close"].iloc[i]), 5),
+            "volume": round(float(df_slice["volume"].iloc[i]), 2) if "volume" in df_slice.columns else 1.0,
         })
         val = anchor_slice.iloc[i]
         if not pd.isna(val):
@@ -287,7 +288,8 @@ async def strategy_health():
 @router.get("/orderflow")
 async def get_order_flow(
     timeframe: str = Query("M15", description="Timeframe: M1 M5 M15 M30 H1 H4 D1"),
-    limit: int = Query(50, ge=1, le=200, description="Number of candles to return"),
+    limit: int = Query(50, ge=1, le=1000, description="Number of candles to return"),
+    vp_candles: int | None = Query(None, ge=1, le=1000, description="Number of recent candles for Volume Profile. Default 32 for session, or matches limit"),
 ):
     """
     Fetch real-time Order Flow / Footprint Chart data for XAUUSDT from CoinGlass.
@@ -302,13 +304,14 @@ async def get_order_flow(
         get_absorption_series,
         get_absorption_zones,
         get_absorption_bubbles,
+        get_volume_profile,
     )
 
     candles = fetch_order_flow(timeframe.upper(), limit)
     if candles is None:
         raise HTTPException(
             status_code=503,
-            detail="Could not fetch order flow from CoinGlass. Check network or try again."
+            detail="Could not fetch order flow from data feed. Check network or try again."
         )
 
     delta_series = get_delta_series(candles)
@@ -316,6 +319,10 @@ async def get_order_flow(
     absorption_series = get_absorption_series(candles)
     absorption_bubbles = get_absorption_bubbles(candles)
     absorption_zones = absorption_bubbles  # backward-compatible alias
+
+    # Volume Profile: session (32) by default, or customized via vp_candles
+    vp_lookback = vp_candles if vp_candles is not None else min(32, len(candles))
+    volume_profile = get_volume_profile(candles[-vp_lookback:] if vp_lookback > 0 else candles, num_bins=35)
 
     # Lightweight summary per candle (align time to broker offset +7200)
     summary = [
@@ -387,4 +394,5 @@ async def get_order_flow(
         "absorption_bubbles":  absorption_bubbles,
         "absorption_zones":    absorption_bubbles,
         "summary":             summary,
+        "volume_profile":      volume_profile,
     }

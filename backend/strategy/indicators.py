@@ -1,7 +1,7 @@
 """
 indicators.py
 Vectorized technical indicator calculations for the strategy engine.
-RSI, MACD, Bollinger Bands, ATR — all computed from raw OHLCV DataFrame.
+RSI, MACD, Bollinger Bands, ATR, ADX — all computed from raw OHLCV DataFrame.
 No external TA libraries required: pure NumPy / pandas.
 """
 
@@ -102,6 +102,66 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     return atr.rename("atr")
 
 
+# ─── ADX ────────────────────────────────────────────────────────────────────
+
+def calculate_adx(df: pd.DataFrame, period: int = 14) -> dict[str, pd.Series]:
+    """
+    Average Directional Index (ADX) using Wilder's smoothing — matches TradingView.
+    Returns dict with keys: 'adx', 'plus_di', 'minus_di'.
+
+    Interpretation:
+      ADX < 20  → no trend / ranging
+      ADX 20-25 → weak trend developing
+      ADX 25-40 → strong trend
+      ADX > 40  → very strong / exhaustion risk
+      +DI > -DI → bullish pressure
+      -DI > +DI → bearish pressure
+    """
+    high = df["high"]
+    low = df["low"]
+    prev_close = df["close"].shift(1)
+    prev_high = high.shift(1)
+    prev_low = low.shift(1)
+
+    # True Range
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+
+    # Directional Movement
+    up_move = high - prev_high
+    down_move = prev_low - low
+
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+
+    plus_dm_s = pd.Series(plus_dm, index=df.index)
+    minus_dm_s = pd.Series(minus_dm, index=df.index)
+
+    # Wilder's smoothing (same as EWM alpha=1/period)
+    atr_w = tr.ewm(alpha=1 / period, adjust=False).mean()
+    plus_dm_w = plus_dm_s.ewm(alpha=1 / period, adjust=False).mean()
+    minus_dm_w = minus_dm_s.ewm(alpha=1 / period, adjust=False).mean()
+
+    # Directional Indicators
+    plus_di = 100 * (plus_dm_w / atr_w.replace(0, np.nan))
+    minus_di = 100 * (minus_dm_w / atr_w.replace(0, np.nan))
+
+    # DX and ADX
+    di_diff = (plus_di - minus_di).abs()
+    di_sum = (plus_di + minus_di).replace(0, np.nan)
+    dx = 100 * (di_diff / di_sum)
+    adx = dx.ewm(alpha=1 / period, adjust=False).mean()
+
+    return {
+        "adx":      adx.fillna(0).rename("adx"),
+        "plus_di":  plus_di.fillna(0).rename("plus_di"),
+        "minus_di": minus_di.fillna(0).rename("minus_di"),
+    }
+
+
 # ─── Combined Snapshot ───────────────────────────────────────────────────────
 
 def compute_all_indicators(df: pd.DataFrame, slice_len: int = 300) -> dict:
@@ -113,6 +173,7 @@ def compute_all_indicators(df: pd.DataFrame, slice_len: int = 300) -> dict:
     macd_dict = calculate_macd(df)
     bb_dict = calculate_bollinger_bands(df)
     atr = calculate_atr(df)
+    adx_dict = calculate_adx(df)
 
     from strategy.bbma_engine import calculate_bbma
     bbma_df = calculate_bbma(df)
@@ -128,6 +189,9 @@ def compute_all_indicators(df: pd.DataFrame, slice_len: int = 300) -> dict:
         bb_lower = bb_dict["lower"].tail(slice_len)
         atr = atr.tail(slice_len)
         bbma_sliced = bbma_df.tail(slice_len)
+        adx      = adx_dict["adx"].tail(slice_len)
+        plus_di  = adx_dict["plus_di"].tail(slice_len)
+        minus_di = adx_dict["minus_di"].tail(slice_len)
     else:
         macd = macd_dict["macd"]
         macd_signal = macd_dict["signal"]
@@ -136,6 +200,9 @@ def compute_all_indicators(df: pd.DataFrame, slice_len: int = 300) -> dict:
         bb_middle = bb_dict["middle"]
         bb_lower = bb_dict["lower"]
         bbma_sliced = bbma_df
+        adx      = adx_dict["adx"]
+        plus_di  = adx_dict["plus_di"]
+        minus_di = adx_dict["minus_di"]
 
     def to_list(series: pd.Series, round_dp: int = 4) -> list[dict]:
         out = []
@@ -173,5 +240,8 @@ def compute_all_indicators(df: pd.DataFrame, slice_len: int = 300) -> dict:
         "bbma_ma10_high": to_list(bbma_sliced["ma10_high"], 5),
         "bbma_ma10_low": to_list(bbma_sliced["ma10_low"], 5),
         "bbma_ema50": to_list(bbma_sliced["ema50"], 5),
+        "adx":      to_list(adx, 2),
+        "plus_di":  to_list(plus_di, 2),
+        "minus_di": to_list(minus_di, 2),
     }
 
