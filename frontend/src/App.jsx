@@ -8,6 +8,7 @@ import TradingCalendar from './components/TradingCalendar';
 import JournalTab from './components/JournalTab';
 import JournalModal from './components/JournalModal';
 import ManualTradeModal from './components/ManualTradeModal';
+import SignalDashboard from './components/SignalDashboard';
 import LoginScreen from './components/LoginScreen';
 import LinkAccountModal from './components/LinkAccountModal';
 import { useAuth } from './context/AuthContext';
@@ -316,6 +317,11 @@ export default function App() {
             onSelectTrade={(t) => setSelectedTrade(t)}
           />
         </div>
+      )}
+
+      {/* Tab 5: Confluence Pressure Strategy Scanner */}
+      {activeTab === 'strategy' && (
+        <SignalDashboard token={token} />
       )}
 
       {/* Journal Reflection Modal */}

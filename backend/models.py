@@ -119,6 +119,47 @@ class Trade(Base):
     )
 
 
+class MarketCandle(Base):
+    __tablename__ = "market_candles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(16), nullable=False, index=True)
+    timeframe = Column(String(8), nullable=False, index=True)
+    time = Column(DateTime, nullable=False, index=True)
+    open = Column(Float, nullable=False)
+    high = Column(Float, nullable=False)
+    low = Column(Float, nullable=False)
+    close = Column(Float, nullable=False)
+    volume = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_market_candles_sym_tf_time", "symbol", "timeframe", "time", unique=True),
+    )
+
+
+class StrategySignal(Base):
+    __tablename__ = "strategy_signals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String, index=True, nullable=False)
+    timeframe = Column(String, index=True, nullable=False)
+    signal = Column(String, nullable=False)  # BUY or SELL
+    time = Column(DateTime, nullable=False, index=True)
+    entry_price = Column(Float, nullable=False)
+    stop_loss = Column(Float, nullable=True)
+    take_profit = Column(Float, nullable=True)
+    risk_reward = Column(Float, default=0.0)
+    confluence_score = Column(Integer, default=0)
+    pressure_bias = Column(Float, default=0.0)
+    anchor = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_strategy_signals_sym_tf_time", "symbol", "timeframe", "time", unique=True),
+    )
+
+
 class JournalEntry(Base):
     __tablename__ = "journal_entries"
 

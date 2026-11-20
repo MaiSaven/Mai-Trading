@@ -409,6 +409,19 @@ export default function Header({
         </button>
 
         <button
+          onClick={() => setActiveTab('strategy')}
+          className="nav-tab-btn"
+          style={{
+            background: activeTab === 'strategy' ? 'rgba(245, 158, 11, 0.18)' : 'transparent',
+            color: activeTab === 'strategy' ? '#FBBF24' : 'var(--text-muted)',
+            border: activeTab === 'strategy' ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid transparent'
+          }}
+        >
+          <Zap size={16} />
+          <span>Strategy Signals</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('journal')}
           className="nav-tab-btn"
           style={{

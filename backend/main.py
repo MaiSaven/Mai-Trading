@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from database import engine, Base, ensure_schema_exists
 import models  # Ensure all SQLAlchemy models are registered
-from routers import sync, trades, journal, analytics, positions, accounts, auth
+from routers import sync, trades, journal, analytics, positions, accounts, auth, strategy
 
 from config import CORS_ORIGINS, HOST, PORT, DATABASE_URL
 
@@ -13,10 +13,15 @@ app = FastAPI(
     version="2.0.0"
 )
 
+import asyncio
+from strategy.market_feeder import start_market_feeder_loop
+
 @app.on_event("startup")
 def on_startup():
     # Safely verify schema without blocking serverless function cold starts
     ensure_schema_exists()
+    # Launch background auto-sync feeder (syncs XAUUSD every 60s)
+    asyncio.create_task(start_market_feeder_loop())
 
 # Enable CORS for configured frontend origins
 app.add_middleware(
@@ -34,6 +39,7 @@ app.include_router(analytics.router)
 app.include_router(positions.router)
 app.include_router(accounts.router)
 app.include_router(auth.router)
+app.include_router(strategy.router)
 
 @app.get("/")
 def root():
